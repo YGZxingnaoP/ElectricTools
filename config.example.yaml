@@ -1,0 +1,59 @@
+# ============================================================
+# ElectricTools 配置模板
+# ------------------------------------------------------------
+# 用法：复制本文件为 config.yaml（已被 .gitignore 忽略）后按需修改。
+# 注意：API Key 不放这里，放 .env / 系统环境变量。
+# ============================================================
+
+server:
+  host: 127.0.0.1
+  port: 8765
+  ws_path: /ws
+
+solver:
+  # 编辑交互中：数值 MNA 求解去抖（毫秒），保证实时
+  realtime_debounce_ms: 120
+  # 编辑静止后：触发 lcapy 符号求解（毫秒）
+  symbolic_idle_ms: 400
+  # 交叉校验相对误差阈值（超过仅提示；这不是“精度承诺”）
+  crosscheck_rel_tol: 1.0e-6
+  # 端口等效扫描参数
+  equivalence_sweep:
+    vmax: 10.0
+    steps: 101
+  # 导出网表是否采用工业标准 SPICE 语法
+  spice_standard: true
+
+ai:
+  enabled: true
+  model: deepseek-flash          # 可选 deepseek-v4-pro
+  base_url: https://api.deepseek.com
+  thinking: enabled              # enabled / disabled
+  reasoning_effort: high         # low / high / max
+  # 带 tools 时官方要求逐轮完整回传 reasoning_content，否则 400
+  resend_reasoning_content: true
+  # 单轮问答内允许的最大工具调用轮数
+  max_tool_rounds: 8
+
+ui:
+  # 网格尺寸（建议按真实 0.1 inch = 2.54mm 映射；此处为像素近似）
+  grid_px: 10
+  # 端子/导线吸附半径（像素）
+  snap_radius_px: 14
+  # 电流方向约定：
+  #   reference = 参考方向 / 被动符号约定（符合大学《电路分析》课程）
+  #   actual    = 实际电流方向
+  current_convention: reference
+  # 默认 AC 表示域：phasor（相量/频域）| timedomain（时域）
+  ac_domain: phasor
+
+paths:
+  storage_root: storage
+  circuits_dir: storage/circuits
+  templates_dir: storage/templates
+  exports_dir: storage/exports
+  log_level: INFO
+
+env:
+  # API Key 从此环境变量读取（其值写在 .env，不写在本文件）
+  api_key_env: DEEPSEEK_API_KEY

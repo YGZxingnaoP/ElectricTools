@@ -1,0 +1,20 @@
+{
+  "name": "electrictools-frontend",
+  "private": true,
+  "version": "2.1.0",
+  "type": "module",
+  "description": "ElectricTools 原理图编辑器（Canvas 2D + Vite）",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  },
+  "dependencies": {
+    "highlight.js": "^11.12.0",
+    "marked": "^18.0.14",
+    "marked-highlight": "^2.2.4"
+  }
+}

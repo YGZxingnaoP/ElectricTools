@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ElectricTools · 电路原理图求解</title>
+  <link rel="stylesheet" href="/src/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- 左：元件面板（Scratch 式） -->
+    <aside id="palette">
+      <h1 class="brand">ElectricTools</h1>
+      <div class="palette-group">
+        <div class="palette-title">电源</div>
+        <button class="palette-item" data-type="vsource"><span class="ic">⎓</span>电压源</button>
+        <button class="palette-item" data-type="isource"><span class="ic">⇢</span>电流源</button>
+        <button class="palette-item" data-type="ground"><span class="ic">⏚</span>接地</button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">无源</div>
+        <button class="palette-item" data-type="resistor"><span class="ic">▭</span>电阻</button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">工具</div>
+        <button class="tool-btn active" data-tool="select">选择/移动</button>
+        <button class="tool-btn" data-tool="wire">画导线（正交）</button>
+        <button class="tool-btn" data-tool="probe">节点探针</button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">视图</div>
+        <button class="mini-btn" id="btn-zoom-in">放大 +</button>
+        <button class="mini-btn" id="btn-zoom-out">缩小 -</button>
+        <button class="mini-btn" id="btn-fit">适应窗口 F</button>
+        <button class="mini-btn" id="btn-load">读取</button>
+      </div>
+      <div class="palette-group">
+        <button class="mini-btn" id="btn-undo">撤销</button>
+        <button class="mini-btn" id="btn-redo">重做</button>
+        <button class="mini-btn" id="btn-rotate">旋转 R</button>
+        <button class="mini-btn" id="btn-delete">删除 Del</button>
+        <button class="mini-btn" id="btn-clear" style="width:100%">清空画布</button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">存档（图 + 结果 + 聊天）</div>
+        <select id="archive-select" class="archive-select"></select>
+        <button class="mini-btn" id="btn-archive-save">保存</button>
+        <button class="mini-btn" id="btn-archive-saveas">另存为</button>
+        <button class="mini-btn" id="btn-archive-new">新建</button>
+        <button class="mini-btn" id="btn-archive-delete">删除</button>
+      </div>
+      <div class="palette-group">
+        <button class="mini-btn" id="btn-settings" style="width:100%">⚙ 设置</button>
+        <button class="mini-btn" id="btn-ai-toggle" style="width:100%">显示/隐藏 AI 栏</button>
+      </div>
+      <div class="conn-status" id="conn-status">未连接</div>
+      <div class="rec-path" id="rec-path"></div>
+    </aside>
+    <div class="resizer" data-panel="palette" data-dir="right" title="拖动调整宽度"></div>
+
+    <!-- 中：画布 -->
+    <main id="stage">
+      <canvas id="canvas"></canvas>
+      <div id="errlog" class="errlog"></div>
+      <div id="debug" class="debug"></div>
+      <div id="hint" class="hint"></div>
+    </main>
+
+    <!-- 右一：属性 / 探针 / 数值 / 公式 / 校验 -->
+    <div class="resizer" data-panel="sidebar" data-dir="left" title="拖动调整宽度"></div>
+    <aside id="sidebar">
+      <section class="panel">
+        <h2>元件属性</h2>
+        <div id="inspector" class="inspector"><p class="muted">未选中元件</p></div>
+      </section>
+      <section class="panel">
+        <h2>节点探针</h2>
+        <div id="probe" class="probe">
+          <p class="muted">用「节点探针」工具点击导线 / 节点，或直接点击节点圆点，查看电压、电流与计算方法。</p>
+        </div>
+      </section>
+      <section class="panel">
+        <h2>求解结果（数值）</h2>
+        <div id="results" class="results"><p class="muted">画好电路后自动求解</p></div>
+      </section>
+      <section class="panel">
+        <h2>符号公式</h2>
+        <div id="formulas" class="formulas"><p class="muted">—</p></div>
+      </section>
+      <section class="panel">
+        <h2>校验</h2>
+        <div id="validation" class="validation"><p class="muted">—</p></div>
+      </section>
+    </aside>
+
+    <!-- 右二：AI 答疑（独立侧栏） -->
+    <div class="resizer resizer-ai" data-panel="ai-sidebar" data-dir="left" title="拖动调整宽度"></div>
+    <aside id="ai-sidebar">
+      <section class="panel ai-panel">
+        <h2>AI 答疑</h2>
+        <div id="ai-session" class="rec-path"></div>
+        <div id="ai-log" class="ai-log"></div>
+        <div class="ai-input">
+          <textarea id="ai-text" rows="3" placeholder="提问，例如：这个节点电压为什么是 2.5V？（输入 @ 选择节点）"></textarea>
+          <button id="ai-send">发送</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div id="settings-modal" class="modal-mask" style="display:none">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>设置</h3>
+        <button id="settings-close" class="x">×</button>
+      </div>
+      <div id="settings-body" class="modal-body"></div>
+      <div class="modal-actions">
+        <button id="settings-clear-memory" class="ghost">清空本存档聊天记录</button>
+        <span id="settings-msg" class="muted"></span>
+        <button id="settings-save" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用输入/确认弹窗（保存文件名等，不依赖浏览器原生 prompt/confirm） -->
+  <div id="prompt-modal" class="modal-mask" style="display:none">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3 id="prompt-title">输入</h3>
+        <button id="prompt-close" class="x">×</button>
+      </div>
+      <div class="modal-body">
+        <input id="prompt-input" type="text" class="name-input" spellcheck="false" />
+        <div id="prompt-msg" class="muted"></div>
+      </div>
+      <div class="modal-actions">
+        <span class="muted"></span>
+        <button id="prompt-cancel" class="ghost">取消</button>
+        <button id="prompt-ok" class="primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

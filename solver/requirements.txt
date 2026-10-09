@@ -1,0 +1,10 @@
+# ElectricTools 后端依赖（安装到根目录 env 内）
+# 用法： env\python.exe -m pip install -r solver\requirements.txt
+lcapy>=1.26
+fastapi>=0.110
+uvicorn[standard]>=0.29
+websockets>=12
+numpy>=1.26
+pydantic>=2.6
+python-dotenv>=1.0
+pyyaml>=6.0

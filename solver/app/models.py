@@ -28,6 +28,7 @@ class Component(BaseModel):
     id: str
     type: str  # resistor / vsource / isource / ground / ...
     value: Optional[float] = None
+    symbol: Optional[str] = None  # 未知量占位（如 "R"、"Ux"）：设置后按未知量处理，只给符号式
     unit: Optional[str] = None
     pins: List[Pin] = Field(default_factory=list)
     # 便于回显（非拓扑必需）

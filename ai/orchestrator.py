@@ -30,9 +30,9 @@ def _make_executor(session_id: str) -> Callable[[str, dict], Any]:
         if name == "get_kcl_equations":
             return T.get_kcl_equations(session_id, args.get("node", ""))
         if name == "apply_thevenin":
-            return T.apply_thevenin(session_id, args.get("node_a", ""), args.get("node_b", ""))
+            return T.apply_thevenin(session_id, args.get("node_a", ""), args.get("node_b", ""), args.get("exclude"))
         if name == "apply_norton":
-            return T.apply_norton(session_id, args.get("node_a", ""), args.get("node_b", ""))
+            return T.apply_norton(session_id, args.get("node_a", ""), args.get("node_b", ""), args.get("exclude"))
         return {"error": f"未知工具：{name}"}
     return ex
 

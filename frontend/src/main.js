@@ -132,6 +132,7 @@ client.onStatus = (s) => {
   connStatus.textContent = s === 'on' ? '已连接求解服务' : '断开，重连中…';
   connStatus.className = 'conn-status ' + (s === 'on' ? 'on' : 'off');
   if (s === 'on') scheduleSolve();
+  else aiPanel.abort('⚠️ 与求解服务的连接已断开（后端可能未运行或正在重启），本次提问已中断，请重试。');
 };
 client.onResult = (payload) => {
   results = payload;
@@ -146,6 +147,7 @@ client.onNodeDetail = (p) => showProbe(attachNodeLabel(p));
 function refreshSidebar() {
   renderInspector(inspEl, state, {
     onValue: (id, val) => { state.setValue(id, val); scheduleSolve(); },
+    onSymbol: (id, sym) => { state.setSymbol(id, sym); scheduleSolve(); },
     onRename: (id, name) => {
       if (!state.renameComponent(id, name)) {
         hint.textContent = '位号无效或与其它元件重名，已还原';

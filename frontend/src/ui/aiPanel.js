@@ -6,11 +6,21 @@ export function setupAiPanel(opts) {
   const sidOf = typeof opts.sessionId === 'function' ? opts.sessionId : () => opts.sessionId;
   let nodeIds = [];
   let pendingEl = null;
+  let pendingTimer = null;
 
   const setNodes = (ids) => { nodeIds = ids || []; };
 
-  client.onAiReply = (p) => {
+  // 清除「思考中…」占位（可附带一条提示）
+  function clearPending(msg) {
+    if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
     if (pendingEl) { pendingEl.remove(); pendingEl = null; }
+    if (msg) append('assistant', msg);
+  }
+  // 供外部（连接断开等）调用，避免「思考中…」永远卡住
+  const abort = (msg) => { if (pendingEl) clearPending(msg || '⚠️ 请求已中断。'); };
+
+  client.onAiReply = (p) => {
+    clearPending();
     if (p && p.error) { append('assistant', '⚠️ ' + p.error); return; }
     if (p && p.reasoning) appendThink(p.reasoning);
     append('assistant', (p && p.content) || '(空回复)');
@@ -25,7 +35,12 @@ export function setupAiPanel(opts) {
     append('user', text);
     textEl.value = '';
     hidePopup();
+    clearPending();
     pendingEl = append('assistant', '思考中…');
+    // 安全网：长时间无响应（AI 超时 / 后端无响应）时解除卡住状态
+    pendingTimer = setTimeout(() => {
+      if (pendingEl) clearPending('⚠️ 长时间未收到回复（可能 AI 超时或后端无响应），请重试。');
+    }, 240000);
     client.ask(sidOf(), text, state.toNetlist(pinPositions), mentions);
   }
 
@@ -119,8 +134,8 @@ export function setupAiPanel(opts) {
 
   // 从后端记录恢复历史（刷新 / 重开后）
   function restore(messages) {
+    clearPending();
     logEl.innerHTML = '';
-    pendingEl = null;
     for (const m of (messages || [])) {
       if (m.role === 'user') append('user', stripContext(m.content));
       else if (m.role === 'assistant' && m.content) append('assistant', m.content);
@@ -137,9 +152,9 @@ export function setupAiPanel(opts) {
   }
 
   function clearLog() {
+    clearPending();
     logEl.innerHTML = '';
-    pendingEl = null;
   }
 
-  return { setNodes, send, restore, clear: clearLog };
+  return { setNodes, send, restore, clear: clearLog, abort };
 }

@@ -49,12 +49,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "apply_thevenin",
-            "description": "对指定端口做戴维南等效，返回开路电压 Voc、短路电流 Isc、等效电阻 Rth。",
+            "description": "对指定端口做戴维南等效，返回开路电压 Voc、短路电流 Isc、等效电阻 Rth。"
+                           "若要求「某元件（如负载 R）为何值时获得最大功率」，请用 exclude 把它本身排除后再求。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "node_a": {"type": "string", "description": "端口正端节点 ID"},
                     "node_b": {"type": "string", "description": "端口负端节点 ID"},
+                    "exclude": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "要从网络中移走的元件 ID 列表（例如被求的负载电阻）",
+                    },
                 },
                 "required": ["node_a", "node_b"],
             },
@@ -64,12 +69,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "apply_norton",
-            "description": "对指定端口做诺顿等效，返回短路电流 In 与等效电阻 Rn。",
+            "description": "对指定端口做诺顿等效，返回短路电流 In 与等效电阻 Rn（同样支持 exclude）。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "node_a": {"type": "string", "description": "端口正端节点 ID"},
                     "node_b": {"type": "string", "description": "端口负端节点 ID"},
+                    "exclude": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "要从网络中移走的元件 ID 列表",
+                    },
                 },
                 "required": ["node_a", "node_b"],
             },

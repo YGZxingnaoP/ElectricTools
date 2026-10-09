@@ -87,9 +87,33 @@ def test_no_ground():
     sch = _divider()
     sch.components = [c for c in sch.components if c.type != "ground"]
     res = analyze(SolveRequest(session_id="nog", schematic=sch, mode="numeric"), False)
-    assert not res.ok
+    # 未接地：现在会自动选择参考节点继续求解（电流可求，节点电压为相对值）
+    assert res.ok, res.diagnostics
     assert any(d.code == "NO_GROUND" for d in res.diagnostics), res.diagnostics
-    print("[OK] test_no_ground: 正确报缺地")
+    r1 = [b for b in res.branches if b.component == "R1"][0]
+    assert abs(abs(r1.current) - 0.0025) < 1e-9, r1.current
+    print("[OK] test_no_ground: 未接地→自动参考，电流正确 R1 =", r1.current)
+
+
+def test_unknown_symbol():
+    """未知量占位：元件不填数值（或填符号）时，仍给符号式；
+    与未知量无关的量照常给出数值（不再整片变空）。"""
+    sch = _divider()
+    for c in sch.components:
+        if c.id == "R2":
+            c.value = None
+            c.symbol = "Rx"
+    res = analyze(SolveRequest(session_id="unk", schematic=sch, mode="both"), True)
+    assert res.ok, res.diagnostics
+    assert any(d.code == "UNKNOWN_VALUE" for d in res.diagnostics), res.diagnostics
+    nums = {n: res.nodes[n].voltage for n in res.node_order}
+    assert 5.0 in [round(v, 6) for v in nums.values() if v is not None], nums
+    exprs = [res.nodes[n].voltage_expr or "" for n in res.node_order if n != "0"]
+    assert any("Rx" in e for e in exprs), exprs
+    assert any(res.nodes[n].voltage is None for n in res.node_order if n != "0"), nums
+    r2 = [b for b in res.branches if b.component == "R2"][0]
+    assert r2.current is None and r2.current_latex, r2
+    print("[OK] test_unknown_symbol: nums =", nums, "| exprs =", exprs)
 
 
 if __name__ == "__main__":
@@ -97,4 +121,5 @@ if __name__ == "__main__":
     test_isource()
     test_node_stability()
     test_no_ground()
+    test_unknown_symbol()
     print("\nALL PASSED")

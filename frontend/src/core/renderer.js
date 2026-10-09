@@ -242,7 +242,9 @@ function label(ctx, c, x, y, scale) {
   ctx.font = `${12 / scale}px "Segoe UI", "Microsoft YaHei"`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const val = c.value === null || c.value === undefined ? '' : fmtEng(c.value, c.unit || '');
+  let val = '';
+  if (c.symbol) val = c.symbol;                                  // 未知量占位（如 R、Ux）
+  else if (c.value !== null && c.value !== undefined) val = fmtEng(c.value, c.unit || '');
   ctx.fillText(`${c.id} ${val}`.trim(), x, y);
 }
 

@@ -93,32 +93,33 @@ def get_kcl_equations(session_id: str, node: str) -> Dict[str, Any]:
     return {"node": node, "kcl_latex": expr + " = 0", "description": "离开节点的电流之和为零（KCL）"}
 
 
-def apply_thevenin(session_id: str, node_a: str, node_b: str) -> Dict[str, Any]:
+def apply_thevenin(session_id: str, node_a: str, node_b: str, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
     topo = _topo(session_id)
     if topo is None:
         return {"error": "当前会话没有电路。"}
     nodes = {nid: info for nid, info in topo.nodes.items()}
     try:
-        th = port_thevenin(nodes, topo.branches, node_a, node_b)
+        th = port_thevenin(nodes, topo.branches, node_a, node_b, exclude=exclude)
     except Exception as exc:
         return {"error": str(exc)}
     return {
         "port": f"{node_a}-{node_b}",
+        "excluded": list(exclude or []),
         "voc": th["voc"], "isc": th["isc"], "rth": th["rth"],
         "equivalent_netlist": f"Vth {node_a} {node_b} {th['voc']!r}\nRth {node_a} {node_b} {th['rth']!r}",
     }
 
 
-def apply_norton(session_id: str, node_a: str, node_b: str) -> Dict[str, Any]:
+def apply_norton(session_id: str, node_a: str, node_b: str, exclude: Optional[List[str]] = None) -> Dict[str, Any]:
     topo = _topo(session_id)
     if topo is None:
         return {"error": "当前会话没有电路。"}
     nodes = {nid: info for nid, info in topo.nodes.items()}
     try:
-        nr = port_norton(nodes, topo.branches, node_a, node_b)
+        nr = port_norton(nodes, topo.branches, node_a, node_b, exclude=exclude)
     except Exception as exc:
         return {"error": str(exc)}
-    return {"port": f"{node_a}-{node_b}", "in": nr["in"], "rn": nr["rn"]}
+    return {"port": f"{node_a}-{node_b}", "excluded": list(exclude or []), "in": nr["in"], "rn": nr["rn"]}
 
 
 def node_detail(session_id: str, node: str) -> Dict[str, Any]:

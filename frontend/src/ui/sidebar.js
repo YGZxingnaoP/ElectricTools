@@ -10,15 +10,20 @@ export function renderInspector(el, state, handlers) {
   }
   const isSource = c.type === 'vsource' || c.type === 'isource';
   const unit = c.unit || (c.type === 'resistor' ? 'Ω' : '');
+  const unknown = !!c.symbol;
   el.innerHTML = `
     <label>位号 / 编号（可自定义）</label>
     <input id="insp-id" type="text" value="${esc(c.id)}" spellcheck="false" />
-    <label>数值 (${unit || '—'})</label>
-    <input id="insp-value" type="number" step="any" value="${c.value ?? ''}" />
+    <label>数值 (${unit || '—'})${unknown ? '（未知量，已停用）' : ''}</label>
+    <input id="insp-value" type="number" step="any" value="${c.value ?? ''}" ${unknown ? 'disabled' : ''} />
+    <label>符号 / 未知量占位（如 R、Ux、U_oc）</label>
+    <input id="insp-symbol" type="text" value="${esc(c.symbol || '')}" spellcheck="false"
+           placeholder="留空 = 已知数值；填写后按未知量处理" />
     <label>旋转</label>
     <select id="insp-rot">
       ${[0, 90, 180, 270].map((r) => `<option value="${r}" ${c.rotation === r ? 'selected' : ''}>${r}°</option>`).join('')}
     </select>
+    ${unknown ? '<p class="muted">当前按未知量处理：仅给出含该符号的公式，不给数值。</p>' : ''}
     ${isSource ? '<p class="muted">参考方向：p0(正端) → p1</p>' : ''}
   `;
   el.querySelector('#insp-id').addEventListener('change', (e) => {
@@ -27,6 +32,9 @@ export function renderInspector(el, state, handlers) {
   });
   el.querySelector('#insp-value').addEventListener('change', (e) => {
     handlers.onValue(c.id, parseFloat(e.target.value));
+  });
+  el.querySelector('#insp-symbol').addEventListener('change', (e) => {
+    handlers.onSymbol(c.id, e.target.value);
   });
   el.querySelector('#insp-rot').addEventListener('change', (e) => {
     handlers.onRotate(c.id, parseInt(e.target.value, 10));

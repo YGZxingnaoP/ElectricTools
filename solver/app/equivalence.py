@@ -11,23 +11,48 @@ from .mna import MnaError, solve_dc
 PROBE = "__probe__"
 
 
+def _pick_ground(nodes: Dict[str, dict], ground: Optional[str] = None) -> str:
+    """参考节点：给定则用；否则优先真实地(0)，再否则取连接最多的节点（与主求解器一致）。"""
+    if ground and ground in nodes:
+        return ground
+    if "0" in nodes and nodes["0"].get("is_ground"):
+        return "0"
+    if not nodes:
+        return ground or "0"
+    return sorted(nodes.keys(), key=lambda n: (-len(nodes[n].get("members", [])), n))[0]
+
+
+def _filter(branches: List[dict], exclude: Optional[List[str]]) -> List[dict]:
+    """剔除指定元件（例如要测"负载"端口时把负载本身移走）。"""
+    if not exclude:
+        return list(branches)
+    drop = {str(x) for x in exclude}
+    return [b for b in branches if b.get("component") not in drop]
+
+
 def _with_probe(branches: List[dict], a: str, b: str, value: float) -> List[dict]:
     return list(branches) + [
         {"component": PROBE, "type": "vsource", "node_p": a, "node_n": b, "value": float(value)}
     ]
 
 
-def port_thevenin(nodes: Dict[str, dict], branches: List[dict], a: str, b: str) -> Dict[str, Optional[float]]:
-    """返回 {voc, isc, rth}。参考方向：端口 a→b。"""
+def port_thevenin(
+    nodes: Dict[str, dict], branches: List[dict], a: str, b: str,
+    ground: Optional[str] = None, exclude: Optional[List[str]] = None,
+) -> Dict[str, Optional[float]]:
+    """返回 {voc, isc, rth}。参考方向：端口 a→b。可 exclude 掉某些元件（如被求的负载）。"""
     if a == b:
         raise MnaError("端口两端为同一节点。")
     if a not in nodes or b not in nodes:
         raise MnaError("端口节点不存在。")
 
-    v_open, _ = solve_dc(nodes, branches)
+    brs = _filter(branches, exclude)
+    g = _pick_ground(nodes, ground)
+
+    v_open, _ = solve_dc(nodes, brs, ground=g)
     voc = v_open[a] - v_open[b]
 
-    v_short, i_short = solve_dc(nodes, _with_probe(branches, a, b, 0.0))
+    v_short, i_short = solve_dc(nodes, _with_probe(brs, a, b, 0.0), ground=g)
     isc = i_short[PROBE]
 
     rth: Optional[float]
@@ -38,22 +63,28 @@ def port_thevenin(nodes: Dict[str, dict], branches: List[dict], a: str, b: str) 
     return {"voc": voc, "isc": isc, "rth": rth}
 
 
-def port_norton(nodes: Dict[str, dict], branches: List[dict], a: str, b: str) -> Dict[str, Optional[float]]:
-    th = port_thevenin(nodes, branches, a, b)
+def port_norton(
+    nodes: Dict[str, dict], branches: List[dict], a: str, b: str,
+    ground: Optional[str] = None, exclude: Optional[List[str]] = None,
+) -> Dict[str, Optional[float]]:
+    th = port_thevenin(nodes, branches, a, b, ground=ground, exclude=exclude)
     return {"in": th["isc"], "rn": th["rth"]}
 
 
 def port_iv_curve(
     nodes: Dict[str, dict], branches: List[dict], a: str, b: str,
     vmax: float = 10.0, steps: int = 101,
+    ground: Optional[str] = None, exclude: Optional[List[str]] = None,
 ) -> List[Dict[str, float]]:
     """在端口加扫描电压源，返回 I-V 曲线。电流参考方向 a→b。"""
+    brs = _filter(branches, exclude)
+    g = _pick_ground(nodes, ground)
     pts: List[Dict[str, float]] = []
     n = max(2, int(steps))
     for i in range(n):
         vtest = -vmax + (2 * vmax) * i / (n - 1)
         try:
-            _, cur = solve_dc(nodes, _with_probe(branches, a, b, vtest))
+            _, cur = solve_dc(nodes, _with_probe(brs, a, b, vtest), ground=g)
             pts.append({"v": vtest, "i": cur[PROBE]})
         except MnaError:
             continue

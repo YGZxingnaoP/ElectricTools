@@ -181,13 +181,13 @@ def derive_topology(sch: Schematic, registry: NodeRegistry) -> TopologyResult:
 
     # ③ 汇总
     roots: Dict[str, Set[str]] = {}
-    for k in set(all_keys) | {GND_KEY}:
+    # 只有真的存在接地元件时，才引入 __GND__ 组；否则会凭空造出一个空的「节点 0」，
+    # 让「是否有地」的判断恒为真、并把数值解引到无意义的基准上。
+    keys = set(all_keys)
+    if any(c.type == "ground" for c in sch.components):
+        keys.add(GND_KEY)
+    for k in keys:
         roots.setdefault(dsu.find(k), set()).add(k)
-
-    if not any(c.type == "ground" for c in sch.components):
-        res.diagnostics.append(
-            Diagnostic(level="error", code="NO_GROUND", message="电路缺少参考地（ground），无法求解。")
-        )
 
     groups_list: List[Tuple[Set[str], bool]] = []
     for members in roots.values():
@@ -227,6 +227,7 @@ def derive_topology(sch: Schematic, registry: NodeRegistry) -> TopologyResult:
                 "node_p": np_,
                 "node_n": nn_,
                 "value": c.value,
+                "symbol": c.symbol,
                 "unit": c.unit,
             }
         )

@@ -77,7 +77,8 @@ export class EditorState {
       rotation: 0,
       mirror: false,
       value: def.defValue,
-      unit: def.unit
+      unit: def.unit,
+      symbol: null
     };
     this.components.push(comp);
     this.selection = { kind: 'component', id: comp.id };
@@ -113,6 +114,25 @@ export class EditorState {
     if (!c) return;
     this.pushHistory();
     c.value = value;
+    c.symbol = null;      // 填了具体数值即不再是未知量
+    this.emit();
+  }
+
+  // 未知量占位：设置符号（如 "R"、"Ux"）→ 按未知量处理，仅给符号式；清空则恢复默认数值。
+  setSymbol(id, symbol) {
+    const c = this.components.find((x) => x.id === id);
+    if (!c) return;
+    const s = String(symbol ?? '').trim();
+    this.pushHistory();
+    if (s) {
+      c.symbol = s;
+      c.value = null;
+    } else {
+      c.symbol = null;
+      if (c.value === null || c.value === undefined) {
+        c.value = COMPONENTS[c.type]?.defValue ?? null;
+      }
+    }
     this.emit();
   }
 
@@ -166,6 +186,7 @@ export class EditorState {
         id: c.id,
         type: c.type,
         value: c.value,
+        symbol: c.symbol ?? null,
         unit: c.unit,
         rotation: c.rotation,
         mirror: c.mirror,

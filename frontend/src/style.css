@@ -46,7 +46,14 @@ body {
 .palette-item.active, .tool-btn.active { border-color: var(--accent); background: #2c3d59; }
 .mini-btn { display: inline-block; width: calc(50% - 4px); margin-right: 5px; text-align: center; padding: 8px; font-size: 13.5px; }
 .mini-btn:nth-child(even) { margin-right: 0; }
-.palette-item .ic { display: inline-block; width: 20px; color: var(--accent); }
+/* 元件库按钮：图标单独一列、宽度自适应，文字另起一列 —— 图标再宽也不会压到文字 */
+.palette-item { display: flex; align-items: center; gap: 8px; }
+.palette-item .ic {
+  flex: 0 0 auto; min-width: 30px; text-align: center; color: var(--accent);
+  font-family: "Cambria Math", "Segoe UI Symbol", "Microsoft YaHei", monospace; font-size: 13px;
+  white-space: nowrap;
+}
+.palette-item > .lbl { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conn-status { font-size: 13px; color: var(--muted); padding: 8px; border-top: 1px solid var(--line); margin-top: 10px; }
 .conn-status.on { color: var(--ok); }
 .conn-status.off { color: var(--err); }
@@ -72,6 +79,37 @@ body {
 /* 右侧栏 */
 .panel { border-bottom: 1px solid var(--line); padding: 12px 14px; }
 .panel h2 { font-size: 15px; margin: 0 0 10px; color: var(--accent); letter-spacing: .3px; }
+
+/* 区块折叠：点标题收起 / 展开 */
+.panel-head { display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none; }
+.panel-head .chev { color: var(--muted); font-size: 12px; transition: transform .15s; }
+.panel.collapsed .panel-body { display: none; }
+.panel.collapsed h2 { margin-bottom: 0; }
+.panel.collapsed .panel-head .chev { transform: rotate(-90deg); }
+
+/* 一键求解 */
+.solve-btn { width: 100%; padding: 9px 12px; margin-bottom: 6px; font-size: 14px; font-weight: 600;
+  background: var(--accent); color: #08111f; border: 1px solid var(--accent); border-radius: 6px;
+  cursor: pointer; }
+.solve-btn:hover { filter: brightness(1.08); }
+
+/* 代数参考值 */
+.alg { display: flex; flex-direction: column; gap: 2px; }
+.frow { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.frow .tag { flex: 0 0 auto; color: var(--muted); font-size: 13px; }
+.frow.fsub { padding-left: 14px; opacity: .85; }
+.frow.fsub .tag { font-size: 12px; }
+
+/* 公式拆解（每一部分乘起来是什么 · 依据） */
+.decomp { margin: 4px 0 10px 14px; border-left: 2px solid var(--line); padding-left: 10px; }
+.decomp summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.decomp summary:hover { color: var(--accent); }
+.d-term { margin: 6px 0; }
+.d-head { font-size: 13px; color: #f0c674; }
+.d-line { font-size: 12.5px; line-height: 1.6; color: var(--text); }
+.d-note { font-size: 12px; color: var(--muted); padding-left: 10px; }
+.basis { font-size: 12px; line-height: 1.6; color: var(--muted); margin-top: 4px; }
 .muted { color: var(--muted); font-size: 13.5px; margin: 4px 0; line-height: 1.5; }
 
 .inspector label { display: block; font-size: 13.5px; color: var(--muted); margin: 8px 0 3px; }
@@ -87,6 +125,52 @@ body {
 .results th, .formulas th { color: var(--muted); font-weight: normal; }
 .node-id { color: var(--accent); font-weight: 600; }
 .val { font-variant-numeric: tabular-nums; }
+/* 节点探针：分步讲解 */
+.step { margin: 8px 0 10px; padding-left: 8px; border-left: 2px solid #2c3444; }
+.step-t { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+.step-x { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
+.step-eq { margin: 5px 0 2px; padding: 5px 8px; background: rgba(79,156,249,.08); border-radius: 6px; overflow-x: auto; }
+.step-tab { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+.step-tab th, .step-tab td { text-align: left; padding: 3px 5px; border-bottom: 1px solid #2c3444; }
+.step-tab th { color: var(--muted); font-weight: normal; }
+
+/* 图上「已知量」自动解出的结果 */
+.mini-btn.active { background: var(--accent); color: #06121f; border-color: var(--accent); }
+.wiring { margin: 0 0 10px; font-size: 12px; }
+.wiring summary { cursor: pointer; color: var(--muted); }
+.wire-node { margin: 4px 0 0; line-height: 1.5; }
+.wire-node b { color: var(--accent); }
+
+/* 图上「已知量」自动解出的结果 */
+.solved-box {
+  margin-bottom: 10px; padding: 6px 8px;
+  background: rgba(240,198,116,.10);
+  border: 1px solid rgba(240,198,116,.35);
+  border-radius: 6px;
+}
+.solved-box .lab { color: #f0c674; font-weight: 600; font-size: 13px; margin-bottom: 3px; }
+
+/* 条件求解（通用） */
+.solve { margin-top: 12px; padding-top: 10px; border-top: 1px solid #2c3444; }
+.solve-head { font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+.solve-hint { font-size: 12px; color: var(--muted); margin-bottom: 6px; line-height: 1.45; }
+.solve-unk { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.cond-row { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+.cond-row select { flex: 0 0 auto; max-width: 34%; }
+.cond-row .cond-ref { max-width: 30%; }
+.cond-row .cond-val { flex: 1 1 auto; min-width: 40px; width: 40px; }
+.cond-row .cond-eq { color: var(--muted); }
+.cond-row .cond-del { flex: 0 0 auto; padding: 0 6px; line-height: 1.4; }
+.inv-res { margin-top: 8px; }
+.inv-ok { font-size: 14px; color: #6ee7a8; margin-bottom: 6px; }
+.inv-err { color: #ff9a9a; font-size: 13px; margin-top: 6px; line-height: 1.5; }
+.inv-warn { color: #f0c674; font-size: 12px; }
+.inv-steps { margin-top: 8px; }
+.inv-steps summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+
+/* 公式面板：「代入已知数值」的副行 */
+.frow.fsub { opacity: .95; }
+.frow.fsub .tag { color: #f0c674; }
 /* 结果表里的节点命名按钮（link 样式） */
 .link-btn {
   background: none; border: none; padding: 0; cursor: pointer;
@@ -169,6 +253,33 @@ body {
 .modal-actions button.ghost { background: transparent; }
 
 .modal.modal-sm { width: min(440px, 92vw); }
+
+/* 学习文档卡片 */
+.modal.modal-learn { width: min(980px, 94vw); height: min(720px, 90vh); display: flex; flex-direction: column; }
+.learn-host { flex: 1; padding: 0; overflow: hidden; }
+.learn-wrap { display: flex; height: 100%; }
+.learn-side {
+  flex: 0 0 190px; border-right: 1px solid var(--line); padding: 10px 8px; overflow-y: auto; background: #0f141d;
+}
+.learn-nav {
+  display: block; width: 100%; text-align: left; margin-bottom: 5px; padding: 8px 10px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 7px; color: var(--muted); font-size: 13.5px;
+}
+.learn-nav:hover { background: var(--panel-2); color: var(--fg); }
+.learn-nav.active { background: #2c3d59; border-color: var(--accent); color: var(--fg); }
+.learn-body { flex: 1; padding: 16px 22px; overflow-y: auto; line-height: 1.75; font-size: 14px; }
+.learn-body h3 { margin: 0 0 6px; font-size: 19px; color: var(--accent); }
+.learn-body h4 { margin: 16px 0 6px; font-size: 15px; color: #cfe0ff; }
+.learn-body p { margin: 6px 0; color: #c8d2e0; }
+.learn-body b { color: var(--fg); }
+.learn-when {
+  display: inline-block; margin: 4px 0 10px; padding: 5px 10px; font-size: 13px;
+  background: #1a2333; border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; color: #a9b8cd;
+}
+.learn-steps { margin: 6px 0 10px 20px; color: #c8d2e0; }
+.learn-steps li { margin: 4px 0; }
+.learn-body .tex { margin: 8px 0; padding: 8px 10px; background: #121822; border-radius: 8px; overflow-x: auto; }
+.learn-body svg { background: #0e131b; border-radius: 8px; border: 1px solid #1d2634; padding: 4px; }
 .name-input {
   width: 100%; background: var(--panel-2); color: var(--fg); border: 1px solid var(--line);
   border-radius: 6px; padding: 10px 12px; font-size: 15px;

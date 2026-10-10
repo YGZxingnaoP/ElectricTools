@@ -1,4 +1,4 @@
-// WebSocket 客户端（主通道）：实时求解 + 断线重连（docs/architecture.md §7.3）
+// WebSocket 客户端（主通道）：实时求解 + 断线重连
 export class SolverClient {
   constructor(url) {
     this.url = url;
@@ -26,6 +26,7 @@ export class SolverClient {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'solve_result') this.onResult && this.onResult(msg.payload);
+      else if (msg.type === 'sweep_result') this.onSweep && this.onSweep(msg.payload);
       else if (msg.type === 'ai_reply') this.onAiReply && this.onAiReply(msg.payload);
       else if (msg.type === 'node_detail') this.onNodeDetail && this.onNodeDetail(msg.payload);
       else if (msg.type === 'error') this.onError && this.onError(msg.payload);
@@ -46,12 +47,22 @@ export class SolverClient {
     return true;
   }
 
-  solve(sessionId, schematic, mode) {
+  solve(sessionId, schematic, mode, domain = {}) {
     return this.send('solve_request', {
       session_id: sessionId,
       schematic,
       mode,        // numeric | symbolic | both
-      analysis: 'dc'
+      analysis: domain.domain || 'dc',
+      domain: domain.domain || 'dc',   // dc | ac | tran
+      freq: domain.freq,               // 交流频率 Hz
+      tstop: domain.tstop,             // 暂态终止时间 s
+      nsteps: domain.nsteps            // 暂态步数
+    });
+  }
+
+  sweep(sessionId, schematic, f0 = 10, f1 = 1e5, points = 61, kind = 'reactive') {
+    return this.send('sweep_request', {
+      session_id: sessionId, schematic, f0, f1, points, kind,
     });
   }
 

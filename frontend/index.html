@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ElectricTools · 电路原理图求解</title>
   <link rel="stylesheet" href="/src/style.css" />
+  <link rel="stylesheet" href="/src/style_domain.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 </head>
@@ -15,19 +16,53 @@
       <h1 class="brand">ElectricTools</h1>
       <div class="palette-group">
         <div class="palette-title">电源</div>
-        <button class="palette-item" data-type="vsource"><span class="ic">⎓</span>电压源</button>
-        <button class="palette-item" data-type="isource"><span class="ic">⇢</span>电流源</button>
-        <button class="palette-item" data-type="ground"><span class="ic">⏚</span>接地</button>
+        <button class="palette-item" data-type="vsource"><span class="ic">⎓</span><span class="lbl">电压源</span></button>
+        <button class="palette-item" data-type="vsource" data-params='{"kind":"ac"}'><span class="ic">∿</span><span class="lbl">交流电压源</span></button>
+        <button class="palette-item" data-type="isource"><span class="ic">⇢</span><span class="lbl">电流源</span></button>
+        <button class="palette-item" data-type="isource" data-params='{"kind":"ac"}'><span class="ic">∿</span><span class="lbl">交流电流源</span></button>
+        <button class="palette-item" data-type="vsource3"><span class="ic">3~</span><span class="lbl">三相电源</span></button>
+        <button class="palette-item" data-type="ground"><span class="ic">⏚</span><span class="lbl">接地</span></button>
       </div>
       <div class="palette-group">
-        <div class="palette-title">无源</div>
-        <button class="palette-item" data-type="resistor"><span class="ic">▭</span>电阻</button>
+        <div class="palette-title">无源 / 动态</div>
+        <button class="palette-item" data-type="resistor"><span class="ic">▭</span><span class="lbl">电阻</span></button>
+        <button class="palette-item" data-type="capacitor"><span class="ic">⊣⊢</span><span class="lbl">电容</span></button>
+        <button class="palette-item" data-type="inductor"><span class="ic">⌒⌒</span><span class="lbl">电感</span></button>
+        <button class="palette-item" data-type="switch"><span class="ic">⏐/</span><span class="lbl">开关</span></button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">受控源 / 磁路</div>
+        <button class="palette-item" data-type="vcvs"><span class="ic">◇μ</span><span class="lbl">压控电压源</span></button>
+        <button class="palette-item" data-type="vccs"><span class="ic">◇gm</span><span class="lbl">压控电流源</span></button>
+        <button class="palette-item" data-type="ccvs"><span class="ic">◇r</span><span class="lbl">流控电压源</span></button>
+        <button class="palette-item" data-type="cccs"><span class="ic">◇β</span><span class="lbl">流控电流源</span></button>
+        <button class="palette-item" data-type="transformer"><span class="ic">⊂⊃</span><span class="lbl">理想变压器</span></button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">电子技术</div>
+        <button class="palette-item" data-type="diode"><span class="ic">▷|</span><span class="lbl">二极管</span></button>
+        <button class="palette-item" data-type="zener"><span class="ic">▷‖</span><span class="lbl">稳压管</span></button>
+        <button class="palette-item" data-type="bjt"><span class="ic">◉</span><span class="lbl">三极管</span></button>
+        <button class="palette-item" data-type="opamp"><span class="ic">▷</span><span class="lbl">集成运放</span></button>
       </div>
       <div class="palette-group">
         <div class="palette-title">工具</div>
         <button class="tool-btn active" data-tool="select">选择/移动</button>
         <button class="tool-btn" data-tool="wire">画导线（正交）</button>
         <button class="tool-btn" data-tool="probe">节点探针</button>
+        <button class="tool-btn" data-tool="note">标注电压 V</button>
+        <button class="tool-btn" data-tool="noteI">标注电流 A</button>
+      </div>
+      <div class="palette-group">
+        <div class="palette-title">分析域</div>
+        <select id="domain-sel" class="mini-sel">
+          <option value="dc">直流</option>
+          <option value="ac">正弦交流（相量）</option>
+          <option value="tran">暂态（时域）</option>
+        </select>
+        <label class="mini-lab">频率 f (Hz) <input id="freq-in" class="mini-in" type="number" value="50" step="10"></label>
+        <label class="mini-lab">终止 t (s) <input id="tstop-in" class="mini-in" type="number" value="0.005" step="0.001"></label>
+        <label class="mini-lab">点数 <input id="nsteps-in" class="mini-in" type="number" value="201" step="20"></label>
       </div>
       <div class="palette-group">
         <div class="palette-title">视图</div>
@@ -44,7 +79,7 @@
         <button class="mini-btn" id="btn-clear" style="width:100%">清空画布</button>
       </div>
       <div class="palette-group">
-        <div class="palette-title">存档（图 + 结果 + 聊天）</div>
+        <div class="palette-title">存档</div>
         <select id="archive-select" class="archive-select"></select>
         <button class="mini-btn" id="btn-archive-save">保存</button>
         <button class="mini-btn" id="btn-archive-saveas">另存为</button>
@@ -52,6 +87,7 @@
         <button class="mini-btn" id="btn-archive-delete">删除</button>
       </div>
       <div class="palette-group">
+        <button class="mini-btn" id="btn-learn" style="width:100%">📖 学习文档</button>
         <button class="mini-btn" id="btn-settings" style="width:100%">⚙ 设置</button>
         <button class="mini-btn" id="btn-ai-toggle" style="width:100%">显示/隐藏 AI 栏</button>
       </div>
@@ -72,26 +108,62 @@
     <div class="resizer" data-panel="sidebar" data-dir="left" title="拖动调整宽度"></div>
     <aside id="sidebar">
       <section class="panel">
-        <h2>元件属性</h2>
-        <div id="inspector" class="inspector"><p class="muted">未选中元件</p></div>
-      </section>
-      <section class="panel">
-        <h2>节点探针</h2>
-        <div id="probe" class="probe">
-          <p class="muted">用「节点探针」工具点击导线 / 节点，或直接点击节点圆点，查看电压、电流与计算方法。</p>
+        <h2 class="panel-head">元件属性<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <div id="inspector" class="inspector"><p class="muted">未选中元件</p></div>
         </div>
       </section>
       <section class="panel">
-        <h2>求解结果（数值）</h2>
-        <div id="results" class="results"><p class="muted">画好电路后自动求解</p></div>
+        <h2 class="panel-head">代数参考值<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <button id="solve-btn" class="solve-btn">求解 · 出数值</button>
+          <div id="solve-out" class="results"></div>
+          <div id="results" class="results"><p class="muted">画好电路后自动求解</p></div>
+          <details class="cond-box">
+            <summary>给条件反解未知量（元件值留空）</summary>
+            <div id="cond-list" class="cond-list"></div>
+            <div style="display:flex;gap:6px;margin:6px 0">
+              <button id="cond-add" class="mini-btn" style="flex:1">＋ 加一条</button>
+              <button id="cond-run" class="mini-btn" style="flex:1">反解</button>
+            </div>
+            <p class="muted" style="font-size:12px">例：某节点电压 = 2.5，或某支路电流 = 1m；
+              留空的元件值会被算出来，并可一键填回图上。</p>
+            <div id="cond-out" class="results"></div>
+          </details>
+        </div>
       </section>
       <section class="panel">
-        <h2>符号公式</h2>
-        <div id="formulas" class="formulas"><p class="muted">—</p></div>
+        <h2 class="panel-head">相量图<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <div id="phasor" class="phasor"><p class="muted">交流分析时在此画出各量的相量（有效值∠相角）。</p></div>
+        </div>
       </section>
       <section class="panel">
-        <h2>校验</h2>
-        <div id="validation" class="validation"><p class="muted">—</p></div>
+        <h2 class="panel-head">曲线（波形 / 扫频）<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <div id="curves" class="curves"><p class="muted">暂态分析出波形；交流分析可扫频看幅频/相频。</p></div>
+          <button id="sweep-btn" class="mini-btn" style="width:100%">扫频（10 Hz ~ 100 kHz）</button>
+        </div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-head">符号公式<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <div id="formulas" class="formulas"><p class="muted">—</p></div>
+        </div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-head">节点探针<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <div id="probe" class="probe">
+            <p class="muted">用「节点探针」工具点击导线 / 节点，或直接点击节点圆点，查看电压、电流与计算方法。</p>
+          </div>
+        </div>
+      </section>
+      <section class="panel">
+        <h2 class="panel-head">校验<span class="chev">▾</span></h2>
+        <div class="panel-body">
+          <div id="validation" class="validation"><p class="muted">—</p></div>
+        </div>
       </section>
     </aside>
 
@@ -111,6 +183,16 @@
   </div>
 
   <!-- 设置弹窗 -->
+  <div id="learn-modal" class="modal-mask" style="display:none">
+    <div class="modal modal-learn">
+      <div class="modal-head">
+        <h3>📖 学习文档 · 计算方法与公式</h3>
+        <button id="learn-close" class="x">×</button>
+      </div>
+      <div id="learn-body" class="modal-body learn-host"></div>
+    </div>
+  </div>
+
   <div id="settings-modal" class="modal-mask" style="display:none">
     <div class="modal">
       <div class="modal-head">

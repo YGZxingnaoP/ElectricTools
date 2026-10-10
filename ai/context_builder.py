@@ -1,4 +1,4 @@
-"""上下文构造：系统提示词 + 电路状态块 + @节点注入（docs/architecture.md §6.4）。"""
+"""上下文构造：系统提示词 + 电路状态块 + @节点注入。"""
 from __future__ import annotations
 
 from typing import Any, List, Optional

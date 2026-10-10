@@ -80,7 +80,39 @@ def _spice_netlist(branches: List[dict]) -> str:
     return "\n".join(lines)
 
 
+def _resolve_and_resolve(req: SolveRequest, cr: dict, do_symbolic: bool):
+    """把反解出的可行值当成已知值，重算一次 → 整张图都变成数字。"""
+    vals: Dict[str, float] = {}
+    for sol in cr.get("solutions", []):
+        if sol.get("feasible"):
+            vals = {cid: info["value"] for cid, info in sol["values"].items() if info.get("feasible")}
+            break
+    if not vals:
+        return None
+    sch3 = req.schematic.model_copy(deep=True)
+    sch3.conditions = []
+    for c in sch3.components:
+        if c.id in vals:
+            c.value = vals[c.id]
+            c.symbol = None
+    inner = analyze(SolveRequest(session_id=req.session_id, schematic=sch3, mode=req.mode,
+                                 domain=req.domain, freq=req.freq, tstop=req.tstop,
+                                 nsteps=req.nsteps), do_symbolic)
+    inner.constraint_result = cr
+    return inner
+
+
 def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
+    """对外入口。
+
+    历史上这里会再挂一堆「解法步骤」（节点电压法/叠加/三要素…），
+    但前端已改成用「学习文档」卡片讲方法 —— 步骤文字既费时间又没人看，故不再生成。
+    端口等效反解仍然保留自己的 steps（那是反解过程本身）。
+    """
+    return _analyze_impl(req, do_symbolic)
+
+
+def _analyze_impl(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
     sch: Schematic = req.schematic
     reg = STORE.registry(req.session_id)
     topo = derive_topology(sch, reg)
@@ -107,6 +139,33 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
         )
         return result
 
+    # ★ 悬空节点先提示（不拦路：端口等效会故意摘元件，那时端口节点只剩一个元件）
+    try:
+        from .engine import check_floating
+        from .solve import build_branches as _bb
+
+        _g = next((n for n, info in topo.nodes.items() if info.get("is_ground")), None)
+        _msg = check_floating(topo.nodes, _bb(sch, topo.node_of_member), _g)
+        if _msg:
+            diagnostics.append(Diagnostic(
+                level="warn", code="FLOATING_NODE",
+                message=_msg + "。若求解失败，多半就是这里没接好。"))
+    except Exception:
+        pass
+
+    # ★★ 新引擎通道：含 C/L/受控源/变压器/运放/二极管/三极管，或指定了 ac/tran 域时启用。
+    # 纯直流 R/V/I 电路仍走老路径（零回归风险）；老路径另有交叉校验。
+    try:
+        from . import engine_bridge
+
+        if engine_bridge.use_new_engine(sch, req):
+            return engine_bridge.fill_result(result, sch, topo, req)
+    except Exception as exc:  # pragma: no cover
+        diagnostics.append(
+            Diagnostic(level="warn", code="ENGINE_FAILED",
+                       message=f"统一求解引擎出错，已回退旧路径：{type(exc).__name__}: {exc}")
+        )
+
     # 参考节点：优先真实接地（节点 0）；若未接地则自动选一个参考节点，
     # 这样电流仍可求解，节点电压为「相对该参考节点」的值。
     has_ground = any(info.get("is_ground") for info in topo.nodes.values())
@@ -119,6 +178,8 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
             topo.nodes.keys(),
             key=lambda n: (-len(topo.nodes[n].get("members", [])), n),
         )[0]
+        if ref_node in result.nodes:
+            result.nodes[ref_node].is_reference = True      # 它的 0 V 是「定义」，不是算出来的
         diagnostics.append(
             Diagnostic(
                 level="warn",
@@ -132,7 +193,11 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
         )
 
     # 未知量（未填数值，或填了占位符号）：跳过数值求解，仅给出符号式
-    unknowns = [b for b in topo.branches if b.get("value") is None]
+    from . import devices as _DEV
+
+    # 只有「真的用数值 value」的器件才算未知量；二极管/三极管/运放/开关没有 value，不算
+    unknowns = [b for b in topo.branches
+                if b.get("value") is None and _DEV.takes_value(b.get("type", ""))]
     if unknowns:
         diagnostics.append(
             Diagnostic(
@@ -164,7 +229,10 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
         try:
             v_mna, i_mna = solve_dc(topo.nodes, topo.branches, ground=ref_node)
         except MnaError as exc:
-            diagnostics.append(Diagnostic(level="error", code="SOLVE_FAILED", message=str(exc)))
+            _fl = next((d.message for d in diagnostics if d.code == "FLOATING_NODE"), "")
+            diagnostics.append(Diagnostic(
+                level="error", code="SOLVE_FAILED",
+                message=(_fl if _fl else str(exc))))
             return result
 
         for nid, val in v_mna.items():
@@ -193,6 +261,8 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
                 if nid in result.nodes:
                     result.nodes[nid].voltage_expr = nd.get("expr")
                     result.nodes[nid].voltage_latex = nd.get("latex")
+                    result.nodes[nid].voltage_latex_sub = nd.get("latex_sub")
+                    result.nodes[nid].voltage_decomp = nd.get("decomp")
                     # 即使存在未知量，只要该节点电压与未知量无关（纯数字），也照样给出数值
                     if result.nodes[nid].voltage is None and nd.get("value") is not None:
                         result.nodes[nid].voltage = nd["value"]
@@ -201,6 +271,8 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
                 if bd:
                     br.current_expr = bd.get("expr")
                     br.current_latex = bd.get("latex")
+                    br.current_latex_sub = bd.get("latex_sub")
+                    br.current_decomp = bd.get("decomp")
                     if br.current is None and bd.get("value") is not None:
                         br.current = bd["value"]
             if not unknowns:
@@ -225,5 +297,55 @@ def analyze(req: SolveRequest, do_symbolic: bool = True) -> SolveResult:
                     message=f"符号求解失败：{sym.get('error')}",
                 )
             )
+
+    # ④ 图上标注的「已知量」→ 自动反解未知量（"画完就有答案"）
+    conds_in = getattr(req.schematic, "conditions", None)
+    if unknowns:
+        from .constraints import resolve_annotations, solve_constraints
+
+        member_of = {nid: nd.members for nid, nd in result.nodes.items()}
+        conds, errs = resolve_annotations(member_of, conds_in or [])
+        if conds:
+            cr = solve_constraints(req.session_id, conds, req.schematic)
+            if errs:
+                cr["warnings"] = errs
+            result.constraint_result = cr
+        elif errs:
+            # 标注解析不出来的话以前是**悄悄丢掉**的，这里必须说出来，否则用户只看到"没反应"
+            result.constraint_result = {
+                "error": "图上的「已知量」标注没能用上：" + "；".join(errs)
+                         + "（把标注拖到节点圆点、导线或元件端子上再填数值）",
+            }
+        else:
+            # ★ 没有任何条件：用**端口等效（戴维南）算法**直接把未知元件推出来 ——
+            #   断开 → 求 Voc → 求 Isc → Rth = Voc/Isc。不需要用户再补任何东西。
+            try:
+                from .algorithms import port_equivalent
+
+                pe = port_equivalent(sch, topo, [b["component"] for b in unknowns],
+                                     SolveRequest(session_id=req.session_id, schematic=sch,
+                                                  mode=req.mode, domain=req.domain, freq=req.freq))
+                if pe:
+                    result.constraint_result = pe
+                    inner = _resolve_and_resolve(req, pe, do_symbolic)
+                    if inner is not None:
+                        inner.constraint_result = pe
+                        return inner
+            except Exception as exc:  # pragma: no cover
+                diagnostics.append(
+                    Diagnostic(level="warn", code="ALGO_FAILED",
+                               message=f"端口等效算法没能算出结果：{type(exc).__name__}: {exc}")
+                )
+        if conds:
+            # 解出可行值后，直接把它当成已知值重算一次 → 整张图都变成数字
+            vals: Dict[str, float] = {}
+            for sol in cr.get("solutions", []):
+                if sol.get("feasible"):
+                    vals = {cid: info["value"] for cid, info in sol["values"].items() if info.get("feasible")}
+                    break
+            if vals:
+                inner = _resolve_and_resolve(req, cr, do_symbolic)
+                if inner is not None:
+                    return inner
 
     return result

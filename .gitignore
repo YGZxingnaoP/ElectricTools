@@ -4,9 +4,12 @@
 
 # --- 内嵌运行时（体积大，约定本地提供，不入库）---
 /env/
+env/*.zip
 
 # --- 密钥与本地配置（含敏感信息，禁止入库）---
 .env
+.env.*
+!.env.example
 config.yaml
 *.local.yaml
 
@@ -23,8 +26,17 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .venv/
 venv/
+
+# --- 打包产物（PyInstaller）---
+#    注意：build_exe.bat 是脚本，要提交；build_exe/ 是中间目录，不提交
+build_exe/
+dist_exe/
+*.spec
+tools/edgedriver/
 
 # --- 用户数据与导出（保留目录占位）---
 storage/circuits/*
@@ -37,8 +49,20 @@ storage/*.db
 
 # --- 运行日志 ---
 .server.log
+*.log
+
+# --- 测试/体检脚本的临时产物 ---
+#    tools/ 下的 .py/.mjs 脚本本身要提交，只忽略它们跑出来的中间文件
+tools/_*.txt
+tools/_*.json
+tools/_bundle.mjs
+tools/_*.bak
+*.tmp
+*.bak
+*~
 
 # --- 编辑器 / 系统 ---
+.vs/
 .vscode/
 .idea/
 Thumbs.db

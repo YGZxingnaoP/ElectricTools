@@ -84,4 +84,62 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "solve_unknowns_with_conditions",
+            "description": "【通用反解】把图上数值留空的元件当作未知量，用若干条条件（某个量 = 某个数）解出它们的代数值。"
+                           "未知量和条件都可以是多条。例如「已知 V_n2 = 2 V，求 R5」→ "
+                           "conditions=[{kind:'node_voltage', ref:'n2', value:2}]；"
+                           "「V_mid = 2.5V 且 I(R1) = 2.5mA」→ 两条条件一起给。"
+                           "会返回每个未知量的数值、是否物理可行，以及分步推导；欠定/无解/多解也会明确说明。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "conditions": {
+                        "type": "array",
+                        "description": "条件列表，每条形如 {kind, ref, value}",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "enum": ["node_voltage", "branch_current"],
+                                    "description": "node_voltage=节点电压（ref 填节点 ID）；branch_current=支路电流（ref 填元件 ID）",
+                                },
+                                "ref": {"type": "string", "description": "节点 ID（如 n2）或元件 ID（如 R1）"},
+                                "value": {"type": "number", "description": "该量等于多少（SI 单位：V 或 A）"},
+                            },
+                            "required": ["kind", "ref", "value"],
+                        },
+                    },
+                },
+                "required": ["conditions"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "solve_component_for_target",
+            "description": "逆运算（反推元件数值）：已知某个目标量应该等于多少，求某个元件（电阻/电压源/电流源）的数值。"
+                           "例如『求 R5 使 V_n2 = 2V』→ component=R5, target_kind=node_voltage, target_ref=n2, target_value=2；"
+                           "『求 I1 使 R2 的电流为 0.5A』→ target_kind=branch_current, target_ref=R2。"
+                           "返回解 + 分步推导（可直接讲给学生）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "component": {"type": "string", "description": "要反推的元件 ID，如 R5"},
+                    "target_kind": {
+                        "type": "string",
+                        "enum": ["node_voltage", "branch_current"],
+                        "description": "目标量类型：node_voltage=节点电压，branch_current=支路电流",
+                    },
+                    "target_ref": {"type": "string", "description": "目标对象：节点电压填节点 ID（如 n2）；支路电流填元件 ID（如 R1）"},
+                    "target_value": {"type": "number", "description": "目标值（SI 单位：V 或 A）"},
+                },
+                "required": ["component", "target_kind", "target_ref", "target_value"],
+            },
+        },
+    },
 ]

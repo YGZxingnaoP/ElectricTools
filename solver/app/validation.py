@@ -1,4 +1,4 @@
-"""校验层：交叉校验 + 物理不变量残差（承接原 PySpice 职责，见 docs/architecture.md §4.3）。"""
+"""校验层：交叉校验 + 物理不变量残差。"""
 from __future__ import annotations
 
 from typing import Dict, List

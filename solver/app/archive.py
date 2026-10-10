@@ -26,7 +26,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ROOT = Path(__file__).resolve().parents[2]
+from .paths import app_root
+
+ROOT = app_root()                     # 存档写在 exe（或项目根）旁边，打包后仍可持久保存
 _BAD = re.compile(r'[\\/:*?"<>|\r\n\t]')
 VERSION = "2.1"
 _LOCK = threading.RLock()

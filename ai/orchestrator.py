@@ -33,6 +33,16 @@ def _make_executor(session_id: str) -> Callable[[str, dict], Any]:
             return T.apply_thevenin(session_id, args.get("node_a", ""), args.get("node_b", ""), args.get("exclude"))
         if name == "apply_norton":
             return T.apply_norton(session_id, args.get("node_a", ""), args.get("node_b", ""), args.get("exclude"))
+        if name == "solve_unknowns_with_conditions":
+            return T.solve_unknowns_with_conditions(session_id, args.get("conditions") or [])
+        if name == "solve_component_for_target":
+            return T.solve_component_for_target(
+                session_id,
+                args.get("component", ""),
+                args.get("target_kind", "node_voltage"),
+                args.get("target_ref", ""),
+                args.get("target_value"),
+            )
         return {"error": f"未知工具：{name}"}
     return ex
 

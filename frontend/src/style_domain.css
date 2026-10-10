@@ -1,0 +1,20 @@
+
+/* 分析域设置（直流 / 交流 / 暂态） */
+.mini-sel { width: 100%; padding: 7px; margin-bottom: 6px; background: #161b24; color: var(--fg); border: 1px solid #2c3444; border-radius: 6px; font-size: 13px; }
+.mini-lab { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; overflow: hidden; }
+.mini-in { width: 76px; padding: 4px 6px; background: #161b24; color: var(--fg); border: 1px solid #2c3444; border-radius: 5px; font-size: 12px; float: right; }
+.mini-in:focus, .mini-sel:focus { outline: none; border-color: var(--accent); }
+
+/* 暂态波形图 */
+.wave-box { margin: 10px 0 12px; padding: 8px; background: #121822; border: 1px solid #2c3444; border-radius: 8px; }
+.wave-box .lab { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.wave-svg { width: 100%; height: 160px; display: block; }
+
+/* 相量图 / 曲线 / 解法步骤（右栏新增折叠栏） */
+.phasor svg, .curves svg { width: 100%; height: 190px; display: block; }
+.phasor .legend, .curves .legend { font-size: 11.5px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+.phasor .legend i, .curves .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+.algo .algo-step { margin: 0 0 9px; padding: 7px 9px; background: #121822; border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; }
+.algo .algo-step b { color: var(--fg); }
+.algo .algo-step .tx { color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.algo .algo-step .fm { margin-top: 4px; }

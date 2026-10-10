@@ -1,4 +1,4 @@
-"""符号求解：lcapy 适配器（见 docs/architecture.md §4.2）。
+"""符号求解：lcapy 适配器。
 
 - 用符号值（V_1、R_1…）构建网表，得到分压/分流等符号式与 LaTeX；
 - 通过 subs 代入实际数值得到数值，供与 MNA 交叉校验；
@@ -10,10 +10,31 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
-from lcapy import Circuit
+from . import explain
 
 PREFIX = {"resistor": "R", "vsource": "V", "isource": "I"}
 _SYM_BAD = re.compile(r"[^0-9A-Za-z_]")
+
+# --- 惰性导入：import lcapy 约 3.7 s，是启动瓶颈；改成首次用到时才导入（服务可秒起） ---
+_Circuit = None
+
+
+def _circuit_cls():
+    global _Circuit
+    if _Circuit is None:
+        from lcapy import Circuit
+        _Circuit = Circuit
+    return _Circuit
+
+
+def warmup() -> None:
+    """预热：后台线程调用，把 lcapy 的导入代价提前付掉。"""
+    _circuit_cls()
+
+
+# --- 符号结果缓存：同一网表+同一组数值重复求解直接命中（编辑时高频重复） ---
+_CACHE: Dict[Any, Dict[str, Any]] = {}
+_CACHE_MAX = 128
 
 
 def _symbol_name(raw: Any) -> str:
@@ -50,10 +71,87 @@ def _safe_float(e: Any, subs: Dict[str, Any]):
         return None
 
 
-def build_netlist(branches: List[dict], ground: str = "0") -> Tuple[str, Dict[str, str], Dict[str, Any]]:
+def _flatten(e: Any):
+    """通分合并（cancel）：把嵌套分数压成一层，公式对新手更可读。
+
+    例：\\frac{-V_1 + \\frac{a}{b}}{R_1}  →  \\frac{...}{R_1(...)}（单个分式）
+    失败则返回 None，调用方退回原始表达式。
+    """
+    try:
+        import sympy as sp
+
+        raw = e.expr
+        if isinstance(raw, dict):           # lcapy 按「域」给字典：DC 是 't'，AC 是频率
+            raw = raw.get("t")
+            if raw is None:
+                vals = list(e.expr.values())
+                raw = vals[0] if vals else 0
+        return sp.cancel(sp.together(raw))
+    except Exception:
+        return None
+
+
+def _expr_text(e: Any) -> str:
+    flat = _flatten(e)
+    return str(flat) if flat is not None else str(e)
+
+
+def _expr_latex(e: Any) -> str:
+    flat = _flatten(e)
+    if flat is None:
+        return e.latex()
+    try:
+        import sympy as sp
+
+        return sp.latex(flat)
+    except Exception:
+        return e.latex()
+
+
+def _sub_latex(e: Any, subs: Dict[str, Any]) -> Any:
+    """把已知元件数值代入后的 LaTeX —— 让学生看到「代入后长什么样」。
+
+    ⚠ 两个坑：
+    ① 不能拿 sp.Symbol('R1') 去匹配 lcapy 表达式里的符号：lcapy 的符号带 positive/real
+       等假设，**不是同一个 sympy 对象**，subs() 会静默不匹配 —— 表现就是「代入已知数值」
+       那一行原封不动、看着像根本没代入。必须用表达式自己的 free_symbols 建映射。
+    ② 不能拿 lcapy 的 e.subs() 之后再通分：lcapy 的「域字典」会被塞进 Mul，sympy 会告警。
+    """
+    if not subs:
+        return None
+    flat = _flatten(e)
+    if flat is None:
+        return None
+    try:
+        import sympy as sp
+
+        m = {s: sp.nsimplify(subs[str(s)]) for s in flat.free_symbols if str(s) in subs}
+        if not m:
+            return None
+        return sp.latex(flat.subs(m))
+    except Exception:
+        return None
+
+
+def build_netlist(branches: List[dict], ground: str = "0"):
+    # ★ 含 R/V/I 以外的新器件（C/L/受控源/变压器/交流源）→ 走扩展网表构建器
+    extra = {"capacitor", "inductor", "vcvs", "vccs", "ccvs", "cccs", "transformer", "switch"}
+    has_ac = any((b.get("params") or {}).get("kind") in ("ac", "sin", "sine", "step")
+                 or b.get("kind") in ("ac", "sin", "sine", "step") for b in branches)
+    if has_ac or any(b.get("type") in extra for b in branches):
+        from .branches_ext import enrich
+        from .netlist_all import build as _build_all
+
+        nl, name_of, subs, sym_meta, skipped = _build_all(enrich(branches), ground)
+        return nl, name_of, subs, sym_meta
+    return _build_netlist_basic(branches, ground)
+
+
+def _build_netlist_basic(branches: List[dict], ground: str = "0"):
     lines: List[str] = []
     name_of: Dict[str, str] = {}
     subs: Dict[str, Any] = {}
+    sym_meta: Dict[str, Dict[str, str]] = {}
     counters: Dict[str, int] = {}
     used: set = set()
     for br in branches:
@@ -82,18 +180,27 @@ def build_netlist(branches: List[dict], ground: str = "0") -> Tuple[str, Dict[st
         used.add(sym)
         if val is not None:
             subs[sym] = val
+        sym_meta[sym] = {"component": br.get("component"), "type": t}
 
         lines.append(f"{name} {_lc_node(br['node_p'], ground)} {_lc_node(br['node_n'], ground)} {sym}")
-    return "\n".join(lines), name_of, subs
+    return "\n".join(lines), name_of, subs, sym_meta
 
 
 def solve_symbolic(nodes: Dict[str, dict], branches: List[dict], ground: str = "0") -> Dict[str, Any]:
-    netlist, name_of, subs = build_netlist(branches, ground)
+    netlist, name_of, subs, sym_meta = build_netlist(branches, ground)
     if not netlist.strip():
         return {"netlist": "", "nodes": {}, "branches": {}, "ok": False, "error": "无可求解元件"}
 
+    # 缓存键必须同时包含「数值」：网表文本只含符号名，改阻值不会改文本
+    key = (netlist, ground, tuple(sorted(nodes.keys())),
+           tuple(sorted((k, v) for k, v in subs.items())),
+           tuple(sorted((k, v.get("type")) for k, v in sym_meta.items())))
+    hit = _CACHE.get(key)
+    if hit is not None:
+        return hit
+
     try:
-        cct = Circuit(netlist)
+        cct = _circuit_cls()(netlist)
     except Exception as exc:  # pragma: no cover
         return {"netlist": netlist, "nodes": {}, "branches": {}, "ok": False, "error": str(exc)}
 
@@ -104,23 +211,31 @@ def solve_symbolic(nodes: Dict[str, dict], branches: List[dict], ground: str = "
         try:
             e = cct[nid].V
             node_out[nid] = {
-                "expr": str(e),
-                "latex": e.latex(),
+                "expr": _expr_text(e),
+                "latex": _expr_latex(e),
+                "latex_sub": _sub_latex(e, subs),
                 "value": _safe_float(e, subs),
+                "decomp": explain.decompose(e, subs, sym_meta),
             }
         except Exception as exc:  # pragma: no cover
-            node_out[nid] = {"expr": None, "latex": None, "value": None, "error": str(exc)}
+            node_out[nid] = {"expr": None, "latex": None, "latex_sub": None, "value": None, "error": str(exc)}
 
     branch_out: Dict[str, dict] = {}
     for comp, name in name_of.items():
         try:
             e = cct[name].I
             branch_out[comp] = {
-                "expr": str(e),
-                "latex": e.latex(),
+                "expr": _expr_text(e),
+                "latex": _expr_latex(e),
+                "latex_sub": _sub_latex(e, subs),
                 "value": _safe_float(e, subs),
+                "decomp": explain.decompose(e, subs, sym_meta),
             }
         except Exception as exc:  # pragma: no cover
             branch_out[comp] = {"expr": None, "latex": None, "value": None, "error": str(exc)}
 
-    return {"netlist": netlist, "nodes": node_out, "branches": branch_out, "ok": True, "error": None}
+    out = {"netlist": netlist, "nodes": node_out, "branches": branch_out, "ok": True, "error": None}
+    if len(_CACHE) >= _CACHE_MAX:
+        _CACHE.clear()                # 简单限容：满则清空（缓存只是加速，丢了也正确）
+    _CACHE[key] = out
+    return out

@@ -1,4 +1,4 @@
-"""端口级等效引擎（docs/architecture.md §5）：Thévenin / Norton / I-V 扫描。
+"""端口级等效引擎：Thévenin / Norton / I-V 扫描。
 
 用 MNA 数值实现（替代已移除的 PySpice 扫描）。
 """

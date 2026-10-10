@@ -1,5 +1,6 @@
 // Canvas 渲染（含摄像机变换：缩放/平移、悬停高亮、自适应网格）
-import { pinPositions, GRID } from './geometry.js';
+import { pinPositions, GRID, noteBox, COMPONENTS } from './geometry.js';
+import { drawExtra } from './symbols.js';
 import { fmtNum, fmtEng } from './numfmt.js';
 
 const COL = {
@@ -32,7 +33,7 @@ export function draw(ctx, scene) {
 
   drawGrid(ctx, view, cam);
 
-  // 导线
+  // 导线（统一颜色：不再按节点着色，图上不显示任何节点信息）
   for (const wire of state.wires) {
     const sel = state.selection?.kind === 'wire' && state.selection.id === wire.id;
     const hov = hover?.kind === 'wire' && hover.id === wire.id;
@@ -45,23 +46,27 @@ export function draw(ctx, scene) {
     ctx.stroke();
   }
 
-  // 导线拐点（拐点即节点，可连接）
-  for (const wire of state.wires) {
-    for (let i = 1; i < wire.vertices.length - 1; i++) {
-      const v = wire.vertices[i];
-      ctx.fillStyle = '#6fb6e8';
-      ctx.beginPath();
-      ctx.arc(v.x, v.y, 2.6, 0, Math.PI * 2);
-      ctx.fill();
+  // 导线拐点：**不是电气节点**，平时不画。
+  // 只在「画导线」时用空心圈提示「这里可以接」。
+  if (state.tool === 'wire') {
+    ctx.strokeStyle = '#6fb6e8';
+    ctx.lineWidth = 1.2 / cam.scale;
+    for (const wire of state.wires) {
+      for (let i = 1; i < wire.vertices.length - 1; i++) {
+        const v = wire.vertices[i];
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, 3.2 / cam.scale, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
   }
 
-  // junction
+  // junction（真正的多路交点）
   for (const j of state.junctions) {
     const sel = state.selection?.kind === 'junction' && state.selection.id === j.id;
     ctx.fillStyle = sel ? COL.wireSel : COL.junction;
     ctx.beginPath();
-    ctx.arc(j.x, j.y, 4, 0, Math.PI * 2);
+    ctx.arc(j.x, j.y, 4 / cam.scale, 0, Math.PI * 2);   // 屏幕上恒定大小
     ctx.fill();
   }
 
@@ -72,8 +77,14 @@ export function draw(ctx, scene) {
     drawComponent(ctx, c, sel, hov, cam.scale);
   }
 
+  // 「已知量」标注（画在图上的条件）
+  for (const n of state.notes || []) {
+    const sel = state.selection?.kind === 'note' && state.selection.id === n.id;
+    drawNote(ctx, state, n, sel, cam.scale);
+  }
+
   // 结果叠加
-  if (results && results.ok) drawResults(ctx, state, results, anim, cam.scale, scene.ui, scene.nodeLabels);
+  if (results && results.ok) drawResults(ctx, state, results, anim, cam.scale, scene.ui);
 
   // 草稿（正在画的导线）与吸附高亮
   drawOverlay(ctx, overlay, cam.scale);
@@ -81,8 +92,41 @@ export function draw(ctx, scene) {
   ctx.restore();
 }
 
-function drawGrid(ctx, view, cam) {
-  const s = cam.scale;
+// 「已知量」标注：一个带引线的标签，锚在节点/支路上
+function drawNote(ctx, state, note, sel, scale) {
+  const b = noteBox(state, note, scale);
+  if (!b) return;
+  const txt = b.text;                       // 与 noteBox 用同一份文字，宽度才对得上
+
+  // 引线 + 锚点
+  ctx.strokeStyle = '#f0c674';
+  ctx.lineWidth = 1.2 / scale;
+  ctx.beginPath();
+  ctx.moveTo(b.pos.x, b.pos.y);
+  ctx.lineTo(b.x + 6 / scale, b.y + b.h);
+  ctx.stroke();
+  ctx.fillStyle = '#f0c674';
+  ctx.beginPath();
+  ctx.arc(b.pos.x, b.pos.y, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 标签底 + 边框
+  ctx.fillStyle = sel ? 'rgba(240,198,116,.30)' : 'rgba(240,198,116,.14)';
+  roundRect(ctx, b.x, b.y, b.w, b.h, 4 / scale);
+  ctx.fill();
+  ctx.strokeStyle = '#f0c674';
+  ctx.lineWidth = (sel ? 2 : 1) / scale;
+  roundRect(ctx, b.x, b.y, b.w, b.h, 4 / scale);
+  ctx.stroke();
+
+  ctx.fillStyle = '#f7dfa8';
+  ctx.font = `${11 / scale}px "Segoe UI", "Microsoft YaHei"`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, b.x + b.w / 2, b.y + b.h / 2);
+}
+
+function drawGrid(ctx, view, cam) {  const s = cam.scale;
   const left = -cam.x / s, top = -cam.y / s;
   const right = (view.w - cam.x) / s, bottom = (view.h - cam.y) / s;
 
@@ -117,15 +161,19 @@ function drawComponent(ctx, c, sel, hov, scale) {
   else if (c.type === 'vsource') drawSource(ctx, pts, c, false, scale);
   else if (c.type === 'isource') drawSource(ctx, pts, c, true, scale);
   else if (c.type === 'ground') drawGround(ctx, pts, scale);
+  else drawExtra(ctx, c, pts, scale);      // 电容/电感/受控源/变压器/二极管/三极管/运放/开关/三相
 
-  // 引脚端点
+  // 引脚端点（屏幕上恒定大小，不随缩放变粗变细）
   ctx.fillStyle = '#6f7c90';
   for (const p of pts) {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, 3 / Math.min(scale, 1.6), 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, 3 / scale, 0, Math.PI * 2);
     ctx.fill();
   }
-  label(ctx, c, c.x + 22, c.y - 22, scale);
+  // 标签：各元件可自定义偏移（大符号默认位置会压在图形上）
+  const def = COMPONENTS[c.type] || {};
+  const lo = def.labelOffset || [22, -22];
+  label(ctx, c, c.x + lo[0], c.y + lo[1], scale);
 }
 
 function drawResistor(ctx, pts, scale) {
@@ -242,32 +290,28 @@ function label(ctx, c, x, y, scale) {
   ctx.font = `${12 / scale}px "Segoe UI", "Microsoft YaHei"`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  let val = '';
-  if (c.symbol) val = c.symbol;                                  // 未知量占位（如 R、Ux）
-  else if (c.value !== null && c.value !== undefined) val = fmtEng(c.value, c.unit || '');
-  ctx.fillText(`${c.id} ${val}`.trim(), x, y);
+  ctx.fillText(`${c.id}${paramText(c)}`, x, y);
 }
 
-function drawResults(ctx, state, results, anim, scale, ui, nodeLabels) {
-  const labels = nodeLabels || {};
-  const nodePos = nodeAnchors(state, results);
-  for (const [nid, info] of Object.entries(results.nodes)) {
-    if (nid === '0' || info.voltage === null || info.voltage === undefined) continue;
-    const pos = nodePos[nid];
-    if (!pos) continue;
-    const name = labels[nid] ? `${labels[nid]} (${nid})` : nid;
-    const txt = `${name}: ${fmtNum(info.voltage)} V`;
-    ctx.font = `bold ${12 / scale}px "Segoe UI", "Microsoft YaHei"`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const wpx = ctx.measureText(txt).width + 12 / scale;
-    ctx.fillStyle = 'rgba(20,26,38,.85)';
-    roundRect(ctx, pos.x - wpx / 2, pos.y - 10 / scale, wpx, 20 / scale, 5 / scale);
-    ctx.fill();
-    ctx.fillStyle = COL.nodeLabel;
-    ctx.fillText(txt, pos.x, pos.y);
-  }
+/** 元件标签上的文字：数值 + 该元件特有的参数（交流源相位、受控源增益、变压器变比、三极管 β…） */
+export function paramText(c) {
+  const p = c.params || {};
+  if (c.type === 'opamp') return '';
+  if (c.type === 'bjt') return ` β=${p.beta ?? 100}`;
+  if (c.type === 'transformer') return ` n=${p.ratio ?? 2}`;
+  if (c.type === 'vcvs') return ` μ=${p.gain ?? 1}`;
+  if (c.type === 'vccs') return ` gm=${p.gain ?? 0.001}`;
+  if (c.type === 'ccvs') return ` r=${p.gain ?? 1}`;
+  if (c.type === 'cccs') return ` β=${p.gain ?? 1}`;
+  const v = c.value !== null && c.value !== undefined ? c.value : '';
+  if (p.kind === 'ac') return ` ${v === '' ? '' : v}∠${p.phase ?? 0}°`;
+  if (p.kind === 'step') return ` ${v}（阶跃）`;
+  return c.symbol ? ` ${c.symbol}` : (v === '' ? '' : ` ${fmtEng(v, c.unit || '')}`);
+}
 
+function drawResults(ctx, state, results, anim, scale, ui) {
+  // 图上不再画任何节点信息（节点名 / 电压 / 引线 / 着色）—— 节点数据只在右侧面板看。
+  // 画布上只保留「支路电流箭头」。
   if (ui && ui.show_current_arrows === false) return;
 
   for (const br of (results.branches || [])) {
@@ -284,12 +328,17 @@ function drawCurrentArrow(ctx, a, b, br, anim, scale, ui) {
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   const dx = b.x - a.x, dy = b.y - a.y;
   const len = Math.hypot(dx, dy) || 1;
-  const ux = dx / len, uy = dy / len;
+  // ★ 箭头画的是「实际电流方向」：p0→p1 为正，为负就整根反过来。
+  //   以前无论正负都画成 p0→p1，负电流时箭头方向和真实电流相反，
+  //   看起来就和电流源符号里的箭头打架（这就是"箭头方向混乱"的来源）。
+  const neg = br.current < 0;
+  const ux = (neg ? -dx : dx) / len;
+  const uy = (neg ? -dy : dy) / len;
   const nx = -uy, ny = ux;
   const off = 24;
   const cx = mid.x + nx * off, cy = mid.y + ny * off;
   const mag = Math.abs(br.current);
-  const color = br.current >= 0 ? COL.current : '#5aa9e6';
+  const color = COL.current;
 
   const size = 10;
   ctx.strokeStyle = color;
@@ -318,18 +367,52 @@ function drawCurrentArrow(ctx, a, b, br, anim, scale, ui) {
   ctx.font = `${11 / scale}px "Segoe UI"`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(`I=${fmtEng(br.current, 'A')}`, cx + nx * 14, cy + ny * 14);
+  ctx.fillText(`I=${fmtEng(mag, 'A')}`, cx + nx * 14, cy + ny * 14);
 }
 
 function drawOverlay(ctx, overlay, scale) {
   if (!overlay) return;
-  // 吸附点高亮
-  if (overlay.hoverSnap && overlay.hoverSnap.target && overlay.hoverSnap.target.kind !== 'grid') {
-    ctx.strokeStyle = '#4f9cf9';
+  // 吸附点高亮 + 「会不会接上」的明确提示
+  const hs = overlay.hoverSnap;
+  if (hs && hs.target && hs.target.kind !== 'grid') {
+    const onWire = ['wire-mid', 'wire', 'wire-corner'].includes(hs.target.kind);
+    const col = onWire ? '#ffb454' : '#4f9cf9';
+    ctx.strokeStyle = col;
     ctx.lineWidth = 2 / scale;
     ctx.beginPath();
-    ctx.arc(overlay.hoverSnap.point.x, overlay.hoverSnap.point.y, 7, 0, Math.PI * 2);
+    ctx.arc(hs.point.x, hs.point.y, 7, 0, Math.PI * 2);
     ctx.stroke();
+    if (onWire) {                       // 三通：实心点，强调"这一下会连上"
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(hs.point.x, hs.point.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const label = onWire ? '⚠ 将连接（三通）' : '✓ 连接端子';
+    ctx.font = `bold ${12 / scale}px "Segoe UI", "Microsoft YaHei"`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(label).width + 10 / scale;
+    ctx.fillStyle = 'rgba(20,26,38,.9)';
+    roundRect(ctx, hs.point.x + 10 / scale, hs.point.y - 26 / scale, w, 17 / scale, 4 / scale);
+    ctx.fill();
+    ctx.fillStyle = col;
+    ctx.fillText(label, hs.point.x + 15 / scale, hs.point.y - 17.5 / scale);
+  }
+  if (overlay.noConnect) {              // 按住 Shift：明确告诉用户"这里断开"
+    const p = hs ? hs.point : null;
+    const label = 'Shift：穿过不连';
+    ctx.font = `bold ${12 / scale}px "Segoe UI", "Microsoft YaHei"`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(label).width + 10 / scale;
+    const bx = (p ? p.x : 0) + 10 / scale;
+    const by = (p ? p.y : 0) + 10 / scale;
+    ctx.fillStyle = 'rgba(20,26,38,.9)';
+    roundRect(ctx, bx, by, w, 17 / scale, 4 / scale);
+    ctx.fill();
+    ctx.fillStyle = '#6ee7a8';
+    ctx.fillText(label, bx + 5 / scale, by + 9 / scale);
   }
   // 导线草稿 + 正交预览（虚线）
   if (overlay.preview && overlay.preview.length >= 2) {
@@ -354,32 +437,6 @@ function drawOverlay(ctx, overlay, scale) {
     drawComponent(ctx, overlay.ghost, false, true, scale);
     ctx.globalAlpha = 1;
   }
-}
-
-function nodeAnchors(state, results) {
-  const map = {};
-  const wires = Object.fromEntries(state.wires.map((w) => [w.id, w]));
-  const juncs = Object.fromEntries(state.junctions.map((j) => [j.id, j]));
-  for (const [nid, info] of Object.entries(results.nodes)) {
-    if (nid === '0') continue;
-    for (const m of info.members) {
-      if (m.startsWith('u:')) {
-        const [cid, pname] = m.slice(2).split('/');
-        const comp = state.components.find((c) => c.id === cid);
-        if (comp) {
-          const p = pinPositions(comp).find((q) => q.name === pname);
-          if (p) { map[nid] = { x: p.x, y: p.y - 18 }; break; }
-        }
-      } else if (m.startsWith('j:')) {
-        const j = juncs[m.slice(2)];
-        if (j) { map[nid] = { x: j.x, y: j.y - 18 }; break; }
-      } else if (m.startsWith('w:')) {
-        const w = wires[m.slice(2)];
-        if (w && w.vertices.length) { map[nid] = { x: w.vertices[0].x, y: w.vertices[0].y - 18 }; break; }
-      }
-    }
-  }
-  return map;
 }
 
 function roundRect(ctx, x, y, w, h, r) {

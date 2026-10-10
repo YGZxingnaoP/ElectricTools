@@ -10,10 +10,15 @@ import os
 from pathlib import Path
 from typing import Any, Dict
 
-ROOT = Path(__file__).resolve().parents[2]
+from .paths import app_root, bundle_root
+
+ROOT = app_root()                     # 可写：config.local.yaml / .env 放 exe（或项目根）旁边
+BUNDLE = bundle_root()                # 只读：打包后的示例配置在解包目录里
 CONFIG_FILE = ROOT / "config.yaml"
 LOCAL_FILE = ROOT / "config.local.yaml"
-EXAMPLE_FILE = ROOT / "config.example.yaml"
+EXAMPLE_FILE = BUNDLE / "config.example.yaml"
+if not EXAMPLE_FILE.exists():
+    EXAMPLE_FILE = ROOT / "config.example.yaml"
 
 try:
     from dotenv import load_dotenv

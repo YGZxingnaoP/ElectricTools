@@ -1,4 +1,4 @@
-// 编辑状态 + 快照式撤销/重做（docs/drawing-model.md §6）
+// 编辑状态 + 快照式撤销/重做
 import { COMPONENTS } from './geometry.js';
 
 export class EditorState {
@@ -6,7 +6,8 @@ export class EditorState {
     this.components = [];
     this.wires = [];
     this.junctions = [];
-    this.selection = null;      // { kind:'component'|'wire'|'junction', id }
+    this.notes = [];            // 图上的「已知量」标注（= 求解时的条件）
+    this.selection = null;      // { kind:'component'|'wire'|'junction'|'note', id }
     this.tool = 'select';       // select | wire
     this.pendingType = null;    // 待放置元件类型
     this.undoStack = [];
@@ -21,7 +22,8 @@ export class EditorState {
     return JSON.stringify({
       components: this.components,
       wires: this.wires,
-      junctions: this.junctions
+      junctions: this.junctions,
+      notes: this.notes
     });
   }
 
@@ -36,6 +38,7 @@ export class EditorState {
     this.components = d.components;
     this.wires = d.wires;
     this.junctions = d.junctions;
+    this.notes = d.notes || [];
     this.selection = null;
     this.emit();
   }
@@ -56,7 +59,8 @@ export class EditorState {
     const used = new Set([
       ...this.components.map((c) => c.id),
       ...this.wires.map((w) => w.id),
-      ...this.junctions.map((j) => j.id)
+      ...this.junctions.map((j) => j.id),
+      ...(this.notes || []).map((n) => n.id)
     ]);
     // 按前缀独立计数（修正：原先用全局共享计数器导致 V1→V2、GND1→GND3、w1→w4）
     if (!this._seq) this._seq = {};
@@ -67,19 +71,27 @@ export class EditorState {
     return id;
   }
 
-  addComponent(type, x, y) {
+  addComponent(type, x, y, params = null) {
     const def = COMPONENTS[type];
     this.pushHistory();
+    const kind = (params && params.kind) || 'dc';
     const comp = {
       id: this.nextId(def.prefix),
       type,
       x, y,
       rotation: 0,
       mirror: false,
-      value: def.defValue,
+      value: params && params.value !== undefined ? params.value : def.defValue,
       unit: def.unit,
-      symbol: null
+      symbol: null,
+      // ★ 多参数元件（交流源的 kind/freq/phase、受控源的 gain、变压器的 ratio…）
+      params: { ...(params || {}) }
     };
+    if (comp.params.kind === 'ac') {
+      if (comp.params.value === undefined) comp.value = 10;
+      if (comp.params.freq === undefined) comp.params.freq = 50;
+      if (comp.params.phase === undefined) comp.params.phase = 0;
+    }
     this.components.push(comp);
     this.selection = { kind: 'component', id: comp.id };
     this.emit();
@@ -109,12 +121,56 @@ export class EditorState {
     return null;
   }
 
+  getSelectedNote() {
+    if (this.selection?.kind === 'note') {
+      return (this.notes || []).find((n) => n.id === this.selection.id) || null;
+    }
+    return null;
+  }
+
+  // 图上的「已知量」：anchor 用位置成员键（和节点探针同一套），后端据此定位节点/支路
+  addNote(anchor, kind = 'node_voltage', value = null) {
+    this.pushHistory();
+    const note = { id: this.nextId('K'), anchor, kind, value };
+    this.notes.push(note);
+    this.selection = { kind: 'note', id: note.id };
+    this.emit();
+    return note;
+  }
+
+  updateNote(id, patch) {
+    const n = (this.notes || []).find((x) => x.id === id);
+    if (!n) return;
+    this.pushHistory();
+    Object.assign(n, patch);
+    this.emit();
+  }
+
+  removeNote(id) {
+    this.pushHistory();
+    this.notes = (this.notes || []).filter((n) => n.id !== id);
+    if (this.selection?.kind === 'note' && this.selection.id === id) this.selection = null;
+    this.emit();
+  }
+
   setValue(id, value) {
     const c = this.components.find((x) => x.id === id);
     if (!c) return;
     this.pushHistory();
     c.value = value;
     c.symbol = null;      // 填了具体数值即不再是未知量
+    this.emit();
+  }
+
+  // ★ 元件参数（交流源的 kind/freq/phase、受控源的 gain/control、变压器 ratio、
+  //   三极管 beta/vbe、二极管 vth/rd、稳压管 vz、开关 closed…）
+  setParam(id, key, value) {
+    const c = this.components.find((x) => x.id === id);
+    if (!c) return;
+    this.pushHistory();
+    if (!c.params) c.params = {};
+    if (value === null || value === undefined || value === '') delete c.params[key];
+    else c.params[key] = value;
     this.emit();
   }
 
@@ -167,6 +223,7 @@ export class EditorState {
     if (kind === 'component') this.components = this.components.filter((c) => c.id !== id);
     else if (kind === 'wire') this.wires = this.wires.filter((w) => w.id !== id);
     else if (kind === 'junction') this.junctions = this.junctions.filter((j) => j.id !== id);
+    else if (kind === 'note') this.notes = this.notes.filter((n) => n.id !== id);
     this.selection = null;
     this.emit();
   }
@@ -176,6 +233,7 @@ export class EditorState {
     this.components = [];
     this.wires = [];
     this.junctions = [];
+    this.notes = [];
     this.selection = null;
     this.emit();
   }
@@ -188,6 +246,7 @@ export class EditorState {
         value: c.value,
         symbol: c.symbol ?? null,
         unit: c.unit,
+        params: c.params || {},
         rotation: c.rotation,
         mirror: c.mirror,
         pins: pinPositions(c).map((p) => ({ name: p.name, x: p.x, y: p.y }))
@@ -196,7 +255,11 @@ export class EditorState {
         id: w.id,
         vertices: w.vertices.map((v) => ({ x: v.x, y: v.y }))
       })),
-      junctions: this.junctions.map((j) => ({ id: j.id, x: j.x, y: j.y }))
+      junctions: this.junctions.map((j) => ({ id: j.id, x: j.x, y: j.y })),
+      // 图上的「已知量」→ 后端据此当条件求解未知量
+      conditions: (this.notes || [])
+        .filter((n) => n.value !== null && n.value !== undefined && n.value !== '')
+        .map((n) => ({ key: n.anchor, kind: n.kind, value: n.value }))
     };
   }
 
@@ -205,7 +268,8 @@ export class EditorState {
     return {
       components: JSON.parse(JSON.stringify(this.components)),
       wires: JSON.parse(JSON.stringify(this.wires)),
-      junctions: JSON.parse(JSON.stringify(this.junctions))
+      junctions: JSON.parse(JSON.stringify(this.junctions)),
+      notes: JSON.parse(JSON.stringify(this.notes || []))
     };
   }
 
@@ -213,6 +277,7 @@ export class EditorState {
     this.components = obj.components || [];
     this.wires = obj.wires || [];
     this.junctions = obj.junctions || [];
+    this.notes = obj.notes || [];
     this.selection = null;
     this.emit();
   }

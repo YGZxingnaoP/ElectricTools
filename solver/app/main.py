@@ -43,6 +43,19 @@ def health() -> Dict[str, Any]:
     return {"ok": True, "version": __version__}
 
 
+@app.on_event("startup")
+async def _warmup_lcapy() -> None:
+    """后台预热 lcapy（import 约 3.7 s）。放在线程里，不阻塞服务启动与首屏加载。"""
+    def _warm() -> None:
+        try:
+            from .lcapy_solver import warmup
+            warmup()
+        except Exception:
+            pass
+
+    asyncio.get_event_loop().run_in_executor(None, _warm)
+
+
 @app.get("/api/config")
 def api_config() -> Dict[str, Any]:
     """返回前端所需的非敏感配置。"""
@@ -147,11 +160,64 @@ async def api_rename_archive(body: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+@app.post("/api/compute")
+async def api_compute(body: Dict[str, Any]) -> Dict[str, Any]:
+    """一键求解：不需要任何输入，把能算成数值的都算出来。"""
+    from .answer import compute_answer
+
+    body = body or {}
+    sid = body.get("session_id") or "default"
+    sch = None
+    if body.get("schematic"):
+        try:
+            sch = Schematic(**body["schematic"])
+        except Exception as exc:
+            return {"error": f"电路数据无效：{exc}"}
+    return await asyncio.to_thread(compute_answer, sid, sch)
+
+
+@app.post("/api/constraints")
+async def api_constraints(body: Dict[str, Any]) -> Dict[str, Any]:
+    """通用条件求解：图上留空的元件（未知量）+ 若干条「某量 = 某值」→ 解出代数值。"""
+    from .constraints import solve_constraints
+
+    body = body or {}
+    sid = body.get("session_id") or "default"
+    if body.get("schematic"):
+        try:
+            STORE.set_schematic(sid, Schematic(**body["schematic"]))
+        except Exception as exc:
+            return {"error": f"电路数据无效：{exc}"}
+    return await asyncio.to_thread(solve_constraints, sid, body.get("conditions") or [])
+
+
 @app.post("/api/solve")
 async def api_solve(req: SolveRequest) -> JSONResponse:
     STORE.set_schematic(req.session_id, req.schematic)
     res = await asyncio.to_thread(analyze, req, True)
     return JSONResponse(res.model_dump())
+
+
+@app.post("/api/inverse")
+async def api_inverse(body: Dict[str, Any]) -> Dict[str, Any]:
+    """逆运算：已知目标量（节点电压/支路电流）→ 反推某元件的数值。"""
+    from .inverse import solve_for_component_value
+
+    body = body or {}
+    sid = body.get("session_id") or "default"
+    if body.get("schematic"):
+        try:
+            STORE.set_schematic(sid, Schematic(**body["schematic"]))
+        except Exception as exc:
+            return {"error": f"电路数据无效：{exc}"}
+    return await asyncio.to_thread(
+        solve_for_component_value,
+        sid,
+        body.get("component") or "",
+        body.get("target_kind") or "node_voltage",
+        body.get("target_ref") or "",
+        body.get("target_value"),
+    )
 
 
 @app.get("/api/settings")
@@ -240,6 +306,27 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 await _handle_ai_chat(ws, mid, payload)
                 continue
 
+            if mtype == "sweep_request":
+                try:
+                    sch = Schematic(**payload.get("schematic") or {})
+                    sid = payload.get("session_id", "default")
+                    STORE.set_schematic(sid, sch)
+                    from .sweep import sweep as _sweep
+                    from .topology import NodeRegistry, derive_topology
+
+                    topo = await asyncio.to_thread(derive_topology, sch, NodeRegistry())
+                    out = await asyncio.to_thread(
+                        _sweep, sch, topo,
+                        float(payload.get("f0") or 10.0), float(payload.get("f1") or 1e5),
+                        int(payload.get("points") or 61), str(payload.get("kind") or "reactive"))
+                    await ws.send_json({"type": "sweep_result", "id": mid, "payload": out})
+                except Exception as exc:
+                    await ws.send_json(
+                        {"type": "error", "id": mid,
+                         "payload": {"code": "SWEEP_FAILED", "message": f"扫频失败：{exc}"}}
+                    )
+                continue
+
             if mtype == "node_probe":
                 sid = payload.get("session_id", "default")
                 if payload.get("schematic"):
@@ -267,13 +354,14 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 # 生产模式：托管前端构建产物（若存在）。API 路由先注册，优先匹配。
 def _mount_frontend() -> None:
-    from pathlib import Path
-
     from fastapi.staticfiles import StaticFiles
 
-    dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-    if dist.exists():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="ui")
+    from .paths import app_root, bundle_root
+
+    for dist in (bundle_root() / "frontend" / "dist", app_root() / "frontend" / "dist"):
+        if dist.exists():
+            app.mount("/", StaticFiles(directory=str(dist), html=True), name="ui")
+            return
 
 
 _mount_frontend()

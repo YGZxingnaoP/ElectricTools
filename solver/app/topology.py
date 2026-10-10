@@ -1,6 +1,6 @@
 """拓扑推导：几何原理图 → 电气节点（DSU）+ 稳定 NodeID。
 
-严格遵循 docs/drawing-model.md §3、§4：
+拓扑规则：
 - 端子/导线端点共点必连；
 - 导线端落在另一导线中部（T 接）自动连；
 - 十字交叉默认不连；junction 显式强制连；
@@ -220,6 +220,19 @@ def derive_topology(sch: Schematic, registry: NodeRegistry) -> TopologyResult:
             continue
         np_ = res.node_of_member.get(pin_keys[0])
         nn_ = res.node_of_member.get(pin_keys[1])
+        # 多端子器件（受控源控制端、变压器副边、运放、三极管）也把全部端子的节点带上，
+        # 并且把元件参数（kind/freq/phase/gain/ratio/control/closed…）一并带出，
+        # 这样符号通道和数值引擎都能直接拿到。
+        nodes = {}
+        for pin in c.pins:
+            nid = res.node_of_member.get(f"u:{c.id}/{pin.name}")
+            if nid is not None:
+                nodes[pin.name] = nid
+        params = dict(getattr(c, "params", None) or {})
+        if c.value is not None:
+            params.setdefault("value", c.value)
+        if c.symbol:
+            params.setdefault("symbol", c.symbol)
         res.branches.append(
             {
                 "component": c.id,
@@ -229,6 +242,8 @@ def derive_topology(sch: Schematic, registry: NodeRegistry) -> TopologyResult:
                 "value": c.value,
                 "symbol": c.symbol,
                 "unit": c.unit,
+                "nodes": nodes,
+                "params": params,
             }
         )
 

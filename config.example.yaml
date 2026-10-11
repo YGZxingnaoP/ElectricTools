@@ -26,7 +26,9 @@ solver:
 
 ai:
   enabled: true
-  model: deepseek-flash          # 可选 deepseek-v4-pro
+  # 模型名自己填（跟 base_url 配套即可）：如 deepseek-flash / deepseek-v4-pro /
+  # gpt-4o-mini / qwen-plus …，界面里的「设置 → 模型」也是手填，没有下拉选项。
+  model: deepseek-flash
   base_url: https://api.deepseek.com
   thinking: enabled              # enabled / disabled
   reasoning_effort: high         # low / high / max
@@ -34,6 +36,8 @@ ai:
   resend_reasoning_content: true
   # 单轮问答内允许的最大工具调用轮数
   max_tool_rounds: 8
+  # 换用非 DeepSeek 官方的 OpenAI 兼容平台时，建议 thinking: disabled
+  # （程序也会在服务端报「不认 thinking 参数」时自动去掉该参数重试一次）
 
 ui:
   # 网格尺寸（建议按真实 0.1 inch = 2.54mm 映射；此处为像素近似）

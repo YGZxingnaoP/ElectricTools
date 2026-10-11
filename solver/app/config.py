@@ -78,7 +78,8 @@ DEFAULTS: Dict[str, Any] = {
 # 允许前端修改的键（白名单）
 SETTABLE = {
     "ai": {"enabled", "model", "base_url", "thinking", "reasoning_effort",
-           "max_tool_rounds", "memory_enabled", "memory_max_turns", "api_key"},
+           "max_tool_rounds",
+           "memory_enabled", "memory_max_turns", "api_key"},
     "ui": {"current_convention", "ac_domain", "show_current_arrows",
            "current_animation", "current_flow_speed", "orthogonal_wires", "snap_radius_px"},
 }
@@ -135,8 +136,36 @@ def load_config() -> Dict[str, Any]:
 CONFIG: Dict[str, Any] = load_config()
 
 
+# 记录 config.local.yaml 的修改时间，用来"改了配置不用重启"
+try:
+    _LAST_MTIME = [LOCAL_FILE.stat().st_mtime if LOCAL_FILE.exists() else 0.0]
+except Exception:
+    _LAST_MTIME = [0.0]
+
+
+def reload_if_changed() -> bool:
+    """config.local.yaml 被改过 → 立刻重新加载（就地更新 CONFIG，保持对象引用不变）。
+
+    不然在编辑器里改完 yaml，跑着的后端还在用旧配置 —— "我改了配置怎么没用" 就是这么来的。
+    """
+    try:
+        if not LOCAL_FILE.exists():
+            return False
+        mtime = LOCAL_FILE.stat().st_mtime
+        if mtime == _LAST_MTIME[0]:
+            return False
+        _LAST_MTIME[0] = mtime
+        fresh = load_config()
+        CONFIG.clear()
+        CONFIG.update(fresh)
+        return True
+    except Exception:
+        return False
+
+
 def public_settings() -> Dict[str, Any]:
-    """给前端的设置（API Key 不明文返回）。"""
+    """给前端的设置（API Key 不明文返回）。顺手检查配置文件是否被改过。"""
+    reload_if_changed()
     ai = CONFIG.get("ai", {})
     key = ai.get("api_key") or ""
     return {

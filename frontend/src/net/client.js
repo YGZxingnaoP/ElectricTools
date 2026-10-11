@@ -6,7 +6,14 @@ export class SolverClient {
     this.seq = 0;
     this.onStatus = null;   // (state: 'on'|'off') => void
     this.onResult = null;   // (payload) => void
-    this.onAiReply = null;  // (payload) => void
+    this.onAiReply = null;  // (payload) => void   旧接口（仅早期校验错误用）
+    this.onAiStart = null;  // () => void
+    this.onAiDelta = null;  // ({kind:'thinking'|'content', text}) => void
+    this.onAiTool = null;   // ({name, args, result}) => void
+    this.onAiDone = null;   // ({stopped, trace}) => void
+    this.onAiError = null;  // ({error}) => void
+    this.onAiStopped = null; // () => void  后端确认收到停止
+    this.onAiDeleted = null; // ({removed}) => void
     this.onNodeDetail = null; // (payload) => void
     this.onError = null;
     this._retry = 0;
@@ -28,6 +35,13 @@ export class SolverClient {
       if (msg.type === 'solve_result') this.onResult && this.onResult(msg.payload);
       else if (msg.type === 'sweep_result') this.onSweep && this.onSweep(msg.payload);
       else if (msg.type === 'ai_reply') this.onAiReply && this.onAiReply(msg.payload);
+      else if (msg.type === 'ai_start') this.onAiStart && this.onAiStart(msg.payload);
+      else if (msg.type === 'ai_delta') this.onAiDelta && this.onAiDelta(msg.payload);
+      else if (msg.type === 'ai_tool') this.onAiTool && this.onAiTool(msg.payload);
+      else if (msg.type === 'ai_done') this.onAiDone && this.onAiDone(msg.payload);
+      else if (msg.type === 'ai_error') this.onAiError && this.onAiError(msg.payload);
+      else if (msg.type === 'ai_stopped') this.onAiStopped && this.onAiStopped(msg.payload);
+      else if (msg.type === 'ai_deleted') this.onAiDeleted && this.onAiDeleted(msg.payload);
       else if (msg.type === 'node_detail') this.onNodeDetail && this.onNodeDetail(msg.payload);
       else if (msg.type === 'error') this.onError && this.onError(msg.payload);
     };
@@ -73,6 +87,16 @@ export class SolverClient {
       schematic,
       mentions: mentions || []
     });
+  }
+
+  /** 停止正在生成的回答（后端在数据块之间轮询该标志） */
+  stopAi(sessionId) {
+    return this.send('ai_stop', { session_id: sessionId });
+  }
+
+  /** 删除第 round 轮（该轮 user 消息及其后的全部记录） */
+  deleteAiRound(sessionId, round) {
+    return this.send('ai_delete_round', { session_id: sessionId, round });
   }
 
   probe(sessionId, node, schematic) {

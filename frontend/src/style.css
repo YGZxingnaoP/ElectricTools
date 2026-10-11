@@ -212,6 +212,25 @@ body {
 .msg.assistant { background: var(--panel-2); }
 .msg .think { color: var(--muted); font-size: 13px; font-style: italic; white-space: pre-wrap; }
 .msg.pending { opacity: .6; }
+
+/* AI：停止生成按钮 + 每条消息右上角的删除按钮 */
+.ai-stop-btn {
+  border: 1px solid #f97066; background: #3a1d1d; color: #ffb4ab;
+  border-radius: 7px; padding: 6px 12px; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.ai-stop-btn:hover { background: #4a2323; }
+.msg { position: relative; }
+.msg .msg-del {
+  position: absolute; top: 2px; right: 3px; width: 20px; height: 20px; line-height: 1;
+  border: none; border-radius: 50%; background: transparent; color: #7d8899;
+  font-size: 15px; cursor: pointer; opacity: 0; transition: opacity .15s;
+}
+.msg:hover .msg-del { opacity: 1; }
+.msg .msg-del:hover { background: #3a1d1d; color: #ffb4ab; }
+.msg.streaming .md::after {
+  content: '▋'; color: var(--accent); animation: ai-blink 1s steps(2) infinite;
+}
+@keyframes ai-blink { 50% { opacity: 0; } }
 .think-box, .trace-box { padding: 5px 10px; }
 .think-box summary, .trace-box summary { cursor: pointer; color: var(--accent); font-size: 13.5px; }
 .ai-input { display: flex; flex-direction: column; gap: 8px; }

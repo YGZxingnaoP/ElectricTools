@@ -65,7 +65,10 @@ def answer(
     message: str,
     schematic: Optional[Schematic] = None,
     mentions: Optional[List[str]] = None,
+    on_event: Optional[Callable[[str, Any], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
+    """一次问答（流式：增量通过 on_event 实时抛出；should_stop 为真时中断）。"""
     if schematic is not None:
         STORE.set_schematic(session_id, schematic)
 
@@ -91,6 +94,7 @@ def answer(
     out = run_conversation(
         cfg, messages, TOOLS, _make_executor(session_id),
         max_rounds=cfg.get("max_tool_rounds", 8),
+        on_event=on_event, should_stop=should_stop,
     )
 
     if memory_enabled:
@@ -102,5 +106,6 @@ def answer(
         "content": out["content"],
         "reasoning": out["reasoning"],
         "trace": out["trace"],
+        "stopped": bool(out.get("stopped")),
         "memory": {"enabled": memory_enabled, "max_turns": max_turns},
     }

@@ -39,6 +39,22 @@ def clear(name: str) -> None:
     _cache[name] = []
 
 
+def drop_from_round(name: str, round_index: int) -> int:
+    """删除第 round_index 轮（从第 N 条 user 消息开始）及其之后的全部记录。
+
+    按 user 边界切，保证不会把 assistant(tool_calls) 与 tool 响应的配对切坏。
+    返回删掉的消息条数。
+    """
+    msgs = list(get(name))
+    user_idx = [i for i, m in enumerate(msgs) if m.get("role") == "user"]
+    if round_index < 0 or round_index >= len(user_idx):
+        return 0
+    cut = user_idx[round_index]
+    removed = len(msgs) - cut
+    set_messages(name, msgs[:cut])
+    return removed
+
+
 def _derive_title(messages: List[dict]) -> str:
     for m in messages or []:
         if m.get("role") == "user":

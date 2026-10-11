@@ -26,10 +26,10 @@ export function setupSettings(opts) {
         <label class="lab">启用 AI 答疑</label>
         <input type="checkbox" id="s-ai-enabled" ${ai.enabled ? 'checked' : ''} />
         <label class="lab">模型</label>
-        <select id="s-model">
-          ${opt('deepseek-flash', ai.model)}
-          ${opt('deepseek-v4-pro', ai.model)}
-        </select>
+        <input type="text" id="s-model" value="${esc(ai.model || '')}"
+               placeholder="自己填，如 deepseek-flash / gpt-4o-mini / qwen-plus" />
+        <label class="lab"></label>
+        <span class="hintline">填你的服务商支持的模型名（要跟上面的 Base URL 配套）。</span>
         <label class="lab">API Base URL</label>
         <input type="text" id="s-baseurl" value="${esc(ai.base_url || '')}" />
         <label class="lab">API Key ${ai.api_key_set ? `<span class="hintline">（已设置${esc(ai.api_key_hint || '')}，留空则不修改）</span>` : ''}</label>

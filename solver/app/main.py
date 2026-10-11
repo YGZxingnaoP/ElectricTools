@@ -242,7 +242,23 @@ async def api_clear_memory(body: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "name": name}
 
 
+_AI_STOP: Dict[str, "threading.Event"] = {}     # session_id → 停止标志（参考 D:\YOder 的做法）
+
+
+def _ai_stop_flag(sid: str):
+    import threading
+
+    ev = _AI_STOP.get(sid)
+    if ev is None:
+        ev = threading.Event()
+        _AI_STOP[sid] = ev
+    return ev
+
+
 async def _handle_ai_chat(ws: WebSocket, mid, payload: Dict[str, Any]) -> None:
+    from .config import reload_if_changed
+
+    reload_if_changed()          # ★ 改了 config.local.yaml 立刻生效，不用重启后端
     sid = payload.get("session_id", "default")
     sch = None
     if payload.get("schematic"):
@@ -260,13 +276,41 @@ async def _handle_ai_chat(ws: WebSocket, mid, payload: Dict[str, Any]) -> None:
     except Exception as exc:  # pragma: no cover
         await ws.send_json({"type": "ai_reply", "id": mid, "payload": {"error": f"AI 模块不可用：{exc}"}})
         return
-    try:
-        out = await asyncio.to_thread(
-            ai_answer, ai_cfg, sid, payload.get("message", ""), sch, payload.get("mentions") or []
-        )
-        await ws.send_json({"type": "ai_reply", "id": mid, "payload": out})
-    except Exception as exc:
-        await ws.send_json({"type": "ai_reply", "id": mid, "payload": {"content": "", "reasoning": "", "error": str(exc)}})
+    ev = _ai_stop_flag(sid)
+    ev.clear()
+    loop = asyncio.get_running_loop()
+    queue: "asyncio.Queue" = asyncio.Queue()
+
+    def emit(kind, data):                     # 工作线程 → 事件循环
+        loop.call_soon_threadsafe(queue.put_nowait, (kind, data))
+
+    def worker():
+        try:
+            out = ai_answer(ai_cfg, sid, payload.get("message", ""), sch,
+                            payload.get("mentions") or [],
+                            on_event=emit, should_stop=ev.is_set)
+            emit("done", {"stopped": bool(out.get("stopped")), "trace": out.get("trace") or []})
+        except Exception as exc:
+            emit("error", str(exc))
+
+    await ws.send_json({"type": "ai_start", "id": mid, "payload": {}})
+    import threading as _th
+
+    _th.Thread(target=worker, daemon=True).start()
+
+    while True:
+        kind, data = await queue.get()
+        if kind == "done":
+            await ws.send_json({"type": "ai_done", "id": mid, "payload": data})
+            break
+        if kind == "error":
+            await ws.send_json({"type": "ai_error", "id": mid, "payload": {"error": str(data)}})
+            break
+        if kind in ("thinking", "content"):
+            await ws.send_json({"type": "ai_delta", "id": mid,
+                                "payload": {"kind": kind, "text": data}})
+        elif kind == "tool":
+            await ws.send_json({"type": "ai_tool", "id": mid, "payload": data})
 
 
 @app.websocket("/ws")
@@ -303,7 +347,23 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 continue
 
             if mtype == "ai_chat":
-                await _handle_ai_chat(ws, mid, payload)
+                # ★ 丢到后台任务里跑，receive 循环才能继续收 ai_stop（否则停止按钮没用）
+                asyncio.create_task(_handle_ai_chat(ws, mid, payload))
+                continue
+
+            if mtype == "ai_stop":
+                ev = _AI_STOP.get(payload.get("session_id", "default"))
+                if ev:
+                    ev.set()
+                await ws.send_json({"type": "ai_stopped", "id": mid, "payload": {}})
+                continue
+
+            if mtype == "ai_delete_round":
+                sid = payload.get("session_id", "default")
+                from ai import conversation_store as _conv
+
+                n = _conv.drop_from_round(sid, int(payload.get("round", 0)))
+                await ws.send_json({"type": "ai_deleted", "id": mid, "payload": {"removed": n}})
                 continue
 
             if mtype == "sweep_request":

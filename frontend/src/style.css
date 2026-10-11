@@ -231,6 +231,18 @@ body {
   content: '▋'; color: var(--accent); animation: ai-blink 1s steps(2) infinite;
 }
 @keyframes ai-blink { 50% { opacity: 0; } }
+
+/* AI 引用（回复/公式里出现的 n2、R1、5 V）：悬停即在画布高亮对应位置 */
+.ai-ref,
+[class*="ai-ref--"] {
+  cursor: help;
+  border-bottom: 1px dashed rgba(77, 208, 225, .6);
+}
+.ai-ref:hover,
+[class*="ai-ref--"]:hover {
+  background: rgba(77, 208, 225, .18);
+  border-bottom-color: #4dd0e1;
+}
 .think-box, .trace-box { padding: 5px 10px; }
 .think-box summary, .trace-box summary { cursor: pointer; color: var(--accent); font-size: 13.5px; }
 .ai-input { display: flex; flex-direction: column; gap: 8px; }

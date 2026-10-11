@@ -304,8 +304,8 @@ export function renderFormulas(el, results) {
     rows.push(row(`I(${b.component}) =`, b.current_latex, b.current_latex_sub, b.current_decomp));
   }
   el.innerHTML = (hasKatex() ? ''
-    : '<p class="muted" style="font-size:12px;line-height:1.5">公式以纯文本显示（KaTeX 没加载出来：'
-      + '需要在联网时能访问 cdn.jsdelivr.net；断网会自动降级，公式照样看得到）。</p>')
+    : '<p class="muted" style="font-size:12px;line-height:1.5">公式以纯文本显示'
+      + '（KaTeX 没加载出来：检查 /lib/katex/katex.min.js 是否存在，硬刷新 Ctrl+Shift+R）。</p>')
     + (rows.length ? rows.join('') : '<p class="muted">（无符号式）</p>');
   renderTex(el);
 }

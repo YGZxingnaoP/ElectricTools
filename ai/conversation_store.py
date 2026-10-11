@@ -33,7 +33,21 @@ def set_messages(name: str, messages: List[dict]) -> None:
             archive.save(name, {"meta": {"title": title}})   # 只更新 meta，不触碰其他模块
 
 
+def forget(name: str) -> None:
+    """只丢内存缓存，**绝不碰存档文件**。
+
+    切档 / 重开同名档时用这个：下次 get() 会从存档目录重新读回来。
+    （曾经这里误用了 clear()，导致一切档就把存档里的对话写空 —— 血的教训。）
+    """
+    _cache.pop(name, None)
+
+
 def clear(name: str) -> None:
+    """★ 破坏性：会把存档里的对话**写空**。
+
+    只允许"用户明确要求清空对话"时调用，任何自动流程（切档、reset_session、
+    memory_enabled=false…）都必须改用 forget()。
+    """
     _cache.pop(name, None)
     archive.save_module(name, "conversation", {"messages": []})
     _cache[name] = []

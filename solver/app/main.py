@@ -328,7 +328,19 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 continue
 
             if mtype == "reset_session":
-                STORE.reset(payload.get("session_id", "default"))
+                sid = payload.get("session_id", "default")
+                STORE.reset(sid)          # 节点编号注册表（回到 n1 起编）
+                try:
+                    from ai import conversation_store as _conv
+
+                    # ★ 只能用 forget（只清内存缓存）：
+                    #   下次 get() 从存档目录重新读回对话；用 clear() 会把存档写空（曾经的事故）
+                    _conv.forget(sid)
+                except Exception:
+                    pass
+                ev0 = _AI_STOP.get(sid)
+                if ev0:
+                    ev0.set()             # 正在生成的问答也没必要继续了
                 await ws.send_json({"type": "reset_ok", "id": mid, "payload": {}})
                 continue
 

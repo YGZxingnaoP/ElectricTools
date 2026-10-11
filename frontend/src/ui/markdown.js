@@ -1,5 +1,6 @@
 // Markdown 渲染：marked + marked-highlight + highlight.js（参考 D:\YOder 的做法）
 // 增强：支持 KaTeX 数学公式 $$...$$ 与 $...$，并在代码块上加复制按钮。
+import { wrapLatex, katexOpts } from './refs.js';
 import { marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import hljs from 'highlight.js/lib/core';
@@ -81,10 +82,17 @@ function esc(s) {
 function katexHtml(tex, display) {
   const k = typeof window !== 'undefined' ? window.katex : null;
   if (!k) return `<code>${esc(tex)}</code>`;
+  const raw = String(tex).trim();
+  const opt = katexOpts(display);
+  const isErr = (h) => !h || h.indexOf('katex-error') >= 0;
   try {
-    return k.renderToString(String(tex).trim(), { throwOnError: false, displayMode: !!display });
+    const html = k.renderToString(wrapLatex(raw), opt);   // 带引用包裹（可悬停高亮）
+    if (!isErr(html)) return html;
+  } catch { /* 落到下面 */ }
+  try {
+    return k.renderToString(raw, opt);                    // 保险：退回原公式，绝不红字报错
   } catch {
-    return `<code>${esc(tex)}</code>`;
+    return `<code>${esc(raw)}</code>`;
   }
 }
 

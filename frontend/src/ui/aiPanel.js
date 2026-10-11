@@ -1,6 +1,7 @@
 // AI 答疑面板：流式回答 + 停止生成 + 删除某轮对话
 // 流式协议（参考 D:\YOder）：ai_start → ai_delta* → (ai_tool*) → ai_done / ai_error
 import { renderMarkdown, addCopyButtons } from './markdown.js';
+import { wrapTextNodes } from './refs.js';
 
 export function setupAiPanel(opts) {
   const { logEl, textEl, sendEl, client, state, pinPositions } = opts;
@@ -204,6 +205,7 @@ export function setupAiPanel(opts) {
   function setMd(el, text) {
     try {
       el.innerHTML = renderMarkdown(text || '');
+      wrapTextNodes(el);         // 把回复里的 n2 / R1 / 5 V 变成可悬停引用（悬停→画布高亮）
       addCopyButtons(el);
     } catch {
       el.textContent = text || '';

@@ -1,4 +1,8 @@
 // 应用入口与交互控制器（CAD 式：缩放 / 平移 / 悬停反馈）
+// ★ KaTeX 本地 vendored：CSS 直接打包；JS 作为静态资源(?url)引入后挂到页面，
+//   避免 Rollup 把 UMD 当 ES 模块解析报错。全程不碰 CDN / 网络。
+import katexJsUrl from './vendor/katex/katex.min.js?url';
+import './vendor/katex/katex.min.css';
 import { EditorState } from './core/model.js';
 import { draw } from './core/renderer.js';
 import {
@@ -10,6 +14,7 @@ import { renderInspector, renderResults, renderFormulas, renderValidation } from
 import { renderPhasor, renderCurves } from './ui/panels.js';
 import { DOCS, renderLearn } from './ui/learn.js';
 import { setupAiPanel } from './ui/aiPanel.js';
+import { setRefs, wrapLatex, katexOpts, refFromEl, refElFrom } from './ui/refs.js';
 import { renderProbe } from './ui/probePanel.js';
 import { setupSettings } from './ui/settings.js';
 import { fmtNum } from './core/numfmt.js';
@@ -82,6 +87,8 @@ let mouseScreen = { x: 0, y: 0 };
 let mouseWorld = { x: 0, y: 0 };
 let hover = null;        // {kind,id}
 let hoverSnap = null;
+let aiHoverRef = null;   // 鼠标正压着的 AI 引用 {kind,id}
+let aiPinnedRef = null;  // 点击钉住的 AI 引用（手移开也不消失）
 let uiCfg = {};          // 来自 /api/config 与设置弹窗的界面配置
 let nodeLabels = {};     // 自定义节点名称（持久化在存档 annotations.node_notes）
 let lastProbe = null;    // 最近一次探针详情（用于重命名后即时刷新）
@@ -115,11 +122,14 @@ function loop() {
   const mul = Number(uiCfg.current_flow_speed ?? 1) || 1;
   anim = (anim + 0.006 * mul) % 1;
   const ghost = state.pendingType && !panning ? ghostComponent() : null;
+  // AI 引用高亮：每帧现算（节点 → 那堆点；元件 → 元件本体），改电路立刻同步
+  const ahRef = aiHoverRef || aiPinnedRef;
+  const aiHover = ahRef ? computeAiHover(ahRef) : null;
   draw(ctx, {
     state, view, cam, results, anim, hover,
     ui: { ...uiCfg },
     nodeLabels,
-    overlay: { draft, preview: wirePreview(), hoverSnap, ghost, noConnect: state.tool === 'wire' && shiftDown }
+    overlay: { draft, preview: wirePreview(), hoverSnap, ghost, aiHover, noConnect: state.tool === 'wire' && shiftDown }
   });
   debugEl.textContent = `缩放 ${(cam.scale * 100).toFixed(0)}%  |  光标 (${mouseWorld.x.toFixed(0)}, ${mouseWorld.y.toFixed(0)})  |  元件 ${state.components.length}  导线 ${state.wires.length}`;
   requestAnimationFrame(loop);
@@ -363,19 +373,136 @@ function renderCondOut() {
 }
 
 function renderTexIn(scope) {
-  if (!window.katex) return;  scope.querySelectorAll('.tex').forEach((elm) => {
+  const k = window.katex;
+  scope.querySelectorAll('.tex').forEach((elm) => {
     const tex = elm.getAttribute('data-tex');
     if (!tex) return;
-    try {
-      window.katex.render(tex, elm, { throwOnError: false, displayMode: false });
-    } catch {
+    if (!k || !k.render) {          // 兜底：KaTeX 真没了也把公式原文显示出来，不留空白
       elm.textContent = tex;
+      return;
+    }
+    try {
+      k.render(wrapLatex(tex), elm, katexOpts(false));
+      if (elm.querySelector('.katex-error')) throw new Error('ref-wrap failed');
+    } catch {
+      // 保险：引用包裹导致渲染失败时，退回渲染原公式（宁可不能悬停，也不能红字/空白）
+      try {
+        k.render(tex, elm, katexOpts(false));
+      } catch {
+        elm.textContent = tex;
+      }
     }
   });
 }
 
+// 加载本地 KaTeX（加载完再把已有公式补渲染一遍，避免启动竞态）
+(function loadKatex() {
+  if (window.katex && window.katex.render) return;
+  const s = document.createElement('script');
+  s.src = katexJsUrl;
+  s.async = false;
+  s.onload = () => {
+    if (window.katex && window.katex.render) {
+      try { renderTexIn(document); } catch { /* ignore */ }
+    }
+  };
+  document.head.appendChild(s);
+})();
+
+// ---------- AI 引用高亮 ----------
+// 节点 = 电压相同的一堆点。后端已给出该节点由哪些引脚/导线/结点组成
+// （results.nodes[id].members，形如 u:R1/p0、w:w1、j:j1），这里把它们换算成坐标点。
+// 悬停节点 → 只亮那堆点；悬停元件 → 只亮元件本体。
+const MEMBER_TOL = 0.5;                    // 同坐标判重容差（引脚常与导线端点重合）
+
+function computeAiHover(ref) {
+  if (!ref) return null;
+
+  if (ref.kind === 'comp') {               // 提到元件：亮元件本体
+    if (!state.components.some((c) => c.id === ref.id)) return null;
+    return { compIds: new Set([ref.id]), points: [], label: ref.id };
+  }
+
+  const nd = (results && results.ok && results.nodes && results.nodes[ref.id]) || null;
+  if (!nd) return null;                    // 该节点已不存在（旧回复）→ 不高亮
+
+  const points = [];
+  const push = (x, y) => {
+    if (!points.some((p) => Math.abs(p.x - x) < MEMBER_TOL && Math.abs(p.y - y) < MEMBER_TOL)) {
+      points.push({ x, y });
+    }
+  };
+
+  for (const m of (nd.members || [])) {
+    const tag = m.slice(0, 2);
+    const rest = m.slice(2);
+    if (tag === 'u:') {                    // 引脚 → 该引脚坐标
+      const i = rest.indexOf('/');
+      if (i < 0) continue;
+      const c = state.components.find((x) => x.id === rest.slice(0, i));
+      if (!c) continue;
+      const want = rest.slice(i + 1);
+      const p = pinPositions(c).find((q) => q.name === want);
+      if (p) push(p.x, p.y);
+    } else if (tag === 'w:') {             // 导线 → 两个端点
+      const w = state.wires.find((x) => x.id === rest);
+      if (!w || !w.vertices || w.vertices.length < 2) continue;
+      const a = w.vertices[0], b = w.vertices[w.vertices.length - 1];
+      push(a.x, a.y);
+      push(b.x, b.y);
+    } else if (tag === 'j:') {             // 结点 → 它自己那个点
+      const j = state.junctions.find((x) => x.id === rest);
+      if (j) push(j.x, j.y);
+    }
+  }
+  if (!points.length) return null;
+  return { compIds: new Set(), points, label: (nodeLabels && nodeLabels[ref.id]) || ref.id };
+}
+
+function centerOnWorld(x, y) {
+  cam.x = view.w / 2 - x * cam.scale;
+  cam.y = view.h / 2 - y * cam.scale;
+}
+
+// 正文的 .ai-ref 与 KaTeX 的 \htmlClass 两种形态共用一个委托入口。
+// 只记录"压在哪个引用上"，真正的坐标换算交给每帧的 computeAiHover（电路一改就跟着变）。
+document.addEventListener('mouseover', (e) => {
+  const el = refElFrom(e.target);
+  if (el) { aiHoverRef = refFromEl(el); return; }
+  if (aiHoverRef && !refElFrom(e.relatedTarget)) aiHoverRef = null;
+});
+document.addEventListener('mouseout', (e) => {
+  if (refElFrom(e.target) && !refElFrom(e.relatedTarget)) aiHoverRef = null;
+});
+document.addEventListener('click', (e) => {
+  const el = refElFrom(e.target);
+  if (!el) return;
+  const ref = refFromEl(el);
+  if (!ref) return;
+  const same = aiPinnedRef && aiPinnedRef.kind === ref.kind && aiPinnedRef.id === ref.id;
+  aiPinnedRef = same ? null : ref;         // 再点一次解除钉住
+  if (ref.kind === 'comp') {               // 元件：同时选中并居中
+    const c = state.components.find((x) => x.id === ref.id);
+    if (c) {
+      state.selection = { kind: 'component', id: c.id };
+      state.emit();
+      if (!same) centerOnWorld(c.x, c.y);
+    }
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { aiPinnedRef = null; aiHoverRef = null; }
+});
+
 // ---------- 侧栏 ----------
 function refreshSidebar() {
+  // 引用识别表以"当前电路"为准：只有真实存在的名字才会被点亮
+  setRefs({
+    comps: state.components.map((c) => c.id),
+    nodes: (results && results.ok && results.node_order) || [],
+    labels: nodeLabels,
+    results,
+  });
   renderInspector(inspEl, state, {
     onValue: (id, val) => { state.setValue(id, val); scheduleSolve(); },
     onSymbol: (id, sym) => { state.setSymbol(id, sym); scheduleSolve(); },
@@ -1179,6 +1306,10 @@ async function openArchive(name) {
   }
   ARCHIVE = name;
   localStorage.setItem('et.archive', name);
+  // ★ 这里**故意不发** reset_session：
+  //   后端会话注册表按档名保存在内存里，保持不动才能让"同一张图"重新解题时节点编号
+  //   （n1/n2…）与存档里 AI 历史提到的编号一致。发 reset 会让编号重排，旧回复里的 n4
+  //   可能指向别的节点。（新建档才需要 reset，见 newArchive）
 
   const doc = await fetchArchive(name);
   const canvas = doc.canvas || {};
@@ -1208,6 +1339,8 @@ async function newArchive() {
   if (ARCHIVE) await saveArchive(ARCHIVE);
   ARCHIVE = n.trim();
   localStorage.setItem('et.archive', ARCHIVE);
+  // 新建档同名时也保证编号/记忆从零开始
+  client.send('reset_session', { session_id: ARCHIVE });
   state.clear();
   results = null;
   nodeLabels = {};

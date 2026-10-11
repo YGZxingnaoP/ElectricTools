@@ -81,6 +81,13 @@ def _read(path: Path):
 
 def _write(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    # ★ 覆盖前留一份上一版（<module>.json.bak）：任何写坏的意外都还捞得回来。
+    #   只在旧文件"有实质内容"时备份，避免用空文件把好备份覆盖掉。
+    try:
+        if path.exists() and path.stat().st_size > 3:
+            path.with_suffix(path.suffix + ".bak").write_bytes(path.read_bytes())
+    except Exception:
+        pass
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)

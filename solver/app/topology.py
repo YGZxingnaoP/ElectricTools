@@ -67,11 +67,15 @@ class _DSU:
 
 
 class NodeRegistry:
-    """跨多次求解维持 NodeID 稳定（见 drawing-model §4.2）。"""
+    """跨多次求解维持 NodeID 稳定（见 drawing-model §4.2）。
+
+    编号规则：**始终使用"当前未被占用的最小号"**。
+    早期实现用单调计数器，导致 n1,n2,n3 → 编辑几轮后变成 n1,n2,n7,n9…（只增不减）。
+    现在被删掉的节点号会被回收：3 个节点永远是 n1,n2,n3，删掉 n2 后新增节点会补上 n2。
+    """
 
     def __init__(self) -> None:
         self._prev: Dict[str, Set[str]] = {}
-        self._counter = 0
 
     def assign(self, groups: List[Tuple[Set[str], bool]]) -> Dict[frozenset, str]:
         """groups: [(members, is_ground)] → {members_frozenset: nodeId}"""
@@ -97,10 +101,15 @@ class NodeRegistry:
             else:
                 new_groups.append(members)
 
-        # 新节点按「锚点」确定性编号（锚 = 成员键的最小值），保证首次求解编号可预期
+        # 新节点：取「未被占用的最小号」，编号始终紧凑；锚点排序保证首次求解可预期
+        used: Set[str] = {nid for nid in self._prev if nid != "0"}
+        used.update(nid for nid in result.values() if nid != "0")
         for members in sorted(new_groups, key=lambda s: min(s) if s else ""):
-            self._counter += 1
-            result[frozenset(members)] = f"n{self._counter}"
+            n = 1
+            while f"n{n}" in used:
+                n += 1
+            used.add(f"n{n}")
+            result[frozenset(members)] = f"n{n}"
 
         self._prev = {nid: set(key) for key, nid in result.items()}
         return result

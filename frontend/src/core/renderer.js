@@ -15,6 +15,7 @@ const COL = {
   junction: '#7fd1b9',
   nodeLabel: '#9fd0ff',
   current: '#ff9f43',
+  aiHi: '#4dd0e1',            // AI 引用高亮（独立于 hover 白 / 选中黄，一眼能分清）
   muted: '#8b97ad'
 };
 
@@ -86,8 +87,66 @@ export function draw(ctx, scene) {
   // 结果叠加
   if (results && results.ok) drawResults(ctx, state, results, anim, cam.scale, scene.ui);
 
+  // AI 引用高亮（悬停 AI 回复/公式里的节点名、元件名时点亮对应位置）
+  drawAiHover(ctx, state, overlay && overlay.aiHover, cam.scale);
+
   // 草稿（正在画的导线）与吸附高亮
   drawOverlay(ctx, overlay, cam.scale);
+
+  ctx.restore();
+}
+
+// AI 引用高亮。
+//   节点：ah.points = 该节点的那堆点（电压相同的一堆点）→ 逐点画醒目标记，只在堆心写个名字。
+//   元件：ah.compIds → 画元件本体。
+// 不描导线、不压暗其它，保持画面干净。
+function drawAiHover(ctx, state, ah, scale) {
+  if (!ah) return;
+  const hasComp = ah.compIds && ah.compIds.size;
+  const pts = ah.points || [];
+  if (!hasComp && !pts.length) return;
+
+  ctx.save();
+  ctx.shadowColor = COL.aiHi;
+  ctx.shadowBlur = 12;
+
+  if (hasComp) {
+    for (const c of state.components) {
+      if (!ah.compIds.has(c.id)) continue;
+      drawComponent(ctx, c, false, false, scale, true);
+    }
+  }
+
+  if (pts.length) {
+    const r = 5 / scale;                    // 屏幕上恒定大小，缩放不变粗
+    for (const p of pts) {
+      ctx.fillStyle = COL.aiHi;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5 / scale;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (ah.label) {                         // 名字写在这堆点的中心
+      let sx = 0, sy = 0;
+      for (const p of pts) { sx += p.x; sy += p.y; }
+      sx /= pts.length;
+      sy /= pts.length;
+      const fs = 13 / scale;
+      ctx.shadowBlur = 6;
+      ctx.font = `${fs}px system-ui, -apple-system, "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 3 / scale;
+      ctx.strokeStyle = 'rgba(14,18,26,.85)';   // 深色描边：在任何背景上都读得清
+      ctx.strokeText(ah.label, sx, sy - 14 / scale);
+      ctx.fillStyle = COL.aiHi;
+      ctx.fillText(ah.label, sx, sy - 14 / scale);
+    }
+  }
 
   ctx.restore();
 }
@@ -149,12 +208,12 @@ function drawGrid(ctx, view, cam) {  const s = cam.scale;
   }
 }
 
-function drawComponent(ctx, c, sel, hov, scale) {
+function drawComponent(ctx, c, sel, hov, scale, ai) {
   const pts = pinPositions(c);
-  const base = sel ? COL.compSel : hov ? COL.compHover : COL.comp;
+  const base = ai ? COL.aiHi : sel ? COL.compSel : hov ? COL.compHover : COL.comp;
   ctx.strokeStyle = base;
   ctx.fillStyle = base;
-  ctx.lineWidth = (sel || hov ? 3 : 2.5) / scale;
+  ctx.lineWidth = (ai || sel || hov ? 3 : 2.5) / scale;
   ctx.lineCap = 'round';
 
   if (c.type === 'resistor') drawResistor(ctx, pts, scale);

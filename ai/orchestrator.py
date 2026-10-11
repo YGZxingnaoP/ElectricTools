@@ -100,7 +100,8 @@ def answer(
     if memory_enabled:
         conv.set_messages(session_id, out["messages"])
     else:
-        conv.clear(session_id)
+        # ★ 关掉记忆 ≠ 毁掉存档里的历史：只丢内存缓存（clear 会把存档写空）
+        conv.forget(session_id)
 
     return {
         "content": out["content"],

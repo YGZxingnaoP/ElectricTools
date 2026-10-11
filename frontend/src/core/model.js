@@ -235,6 +235,7 @@ export class EditorState {
     this.junctions = [];
     this.notes = [];
     this.selection = null;
+    this._seq = {};            // 命名序号归零：清空后从 R1/w1/j1/K1 重新编号
     this.emit();
   }
 
@@ -279,6 +280,7 @@ export class EditorState {
     this.junctions = obj.junctions || [];
     this.notes = obj.notes || [];
     this.selection = null;
+    this._seq = {};            // 载入存档后序号归零：新增元件从"当前最大号+1"接着走
     this.emit();
   }
 }
